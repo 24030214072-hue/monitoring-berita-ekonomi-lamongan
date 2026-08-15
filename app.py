@@ -1,3 +1,10 @@
+import streamlit as st
+
+# Trik agar Google bisa membaca file verifikasi HTML di Streamlit
+query_params = st.query_params
+if "google4ceece64915feaf4.html" in query_params: # ganti sesuai nama file milikmu
+    st.write("google-site-verification: google4ceece64915feaf4.html")
+    st.stop()
 import os
 import re
 import json
