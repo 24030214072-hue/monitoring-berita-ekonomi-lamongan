@@ -16,7 +16,6 @@ import requests
 from bs4 import BeautifulSoup
 import plotly.express as px
 from google import genai
-import openpyxl
 
 # ============================================================
 # KONFIGURASI HALAMAN & STYLING CSS
@@ -118,7 +117,7 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# PROMPT AI STRICT (LEBIH KETAT MEMILIK BERITA EKONOMI)
+# PROMPT AI STRICT (LEBIH KETAT MEMILIH BERITA EKONOMI)
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
@@ -509,42 +508,56 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN EXCEL RAPI + AUTO-FIT KOLOM (SESUAI REQUEST)
+# EKSPOR LAPORAN EXCEL / CSV RAPI
 # ============================================================
 
-st.markdown('<div class="section-header">📥 Ekspor Laporan Excel Rapi</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">📥 Ekspor Laporan Excel / CSV</div>', unsafe_allow_html=True)
 
 if not filtered.empty:
     exp_df = filtered.copy()
     exp_df["Tanggal Berita"] = exp_df["Tanggal Berita"].dt.strftime("%Y-%m-%d")
     exp_df = exp_df[["Tanggal Berita", "Media", "Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita", "Link Berita"]]
 
-    # MENGHASILKAN FILE EXCEL SANGAT RAPI WITH AUTO-FIT SPASI
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        exp_df.to_excel(writer, index=False, sheet_name='Monitoring Berita')
-        worksheet = writer.sheets['Monitoring Berita']
+    c1, c2 = st.columns(2)
 
-        # Otomatis melebarkan kolom sesuai panjang teks terbesar
-        for col in worksheet.columns:
-            max_len = 0
-            col_letter = openpyxl.utils.get_column_letter(col[0].column)
-            for cell in col:
-                val_str = str(cell.value or '')
-                if len(val_str) > max_len:
-                    max_len = len(val_str)
-            # Beri ruang spasi ekstra + batasi maks 60 biar tidak terlalu lebar
-            worksheet.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 65)
-
-    buffer.seek(0)
-
-    st.download_button(
-        label="📊 Download Laporan Format Excel (.xlsx) Rapi & Pas Kolom",
-        data=buffer,
-        file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # 1. Format CSV Rapi Titik Koma (Langsung Terpisah di Excel)
+    csv_data = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
+    c1.download_button(
+        label="📄 Download Laporan CSV (Titik Koma Rapi)",
+        data=csv_data,
+        file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
         use_container_width=True
     )
+
+    # 2. Format True Excel (.xlsx) dengan Auto-Fit Kolom
+    try:
+        import openpyxl
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            exp_df.to_excel(writer, index=False, sheet_name='Monitoring Berita')
+            worksheet = writer.sheets['Monitoring Berita']
+
+            # Melebarkan kolom otomatis
+            for col in worksheet.columns:
+                max_len = 0
+                col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                for cell in col:
+                    val_str = str(cell.value or '')
+                    if len(val_str) > max_len:
+                        max_len = len(val_str)
+                worksheet.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 65)
+
+        buffer.seek(0)
+        c2.download_button(
+            label="📊 Download Laporan Excel (.xlsx) Rapi",
+            data=buffer,
+            file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    except Exception:
+        c2.info("💡 Jangan lupa tambahkan 'openpyxl' di requirements.txt untuk aktifkan file .xlsx")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
