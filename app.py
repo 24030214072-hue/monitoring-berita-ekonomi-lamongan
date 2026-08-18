@@ -2,7 +2,6 @@ import os
 import re
 import json
 import hashlib
-import html
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -17,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 import plotly.express as px
 from google import genai
+import openpyxl
 
 # ============================================================
 # KONFIGURASI HALAMAN & STYLING CSS
@@ -118,26 +118,25 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# PROMPT AI DARI MBAK IDA
+# PROMPT AI STRICT (LEBIH KETAT MEMILIK BERITA EKONOMI)
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
-Anda adalah analis berita ekonomi untuk Badan Pusat Statistik (BPS) Kabupaten Lamongan.
+Anda adalah analis berita ekonomi Badan Pusat Statistik (BPS) Kabupaten Lamongan.
 
-Baca JUDUL dan ISI BERITA secara keseluruhan.
-Jangan menentukan hasil hanya berdasarkan kata kunci. Pahami konteks, lokasi, kegiatan, pelaku, angka, dan dampak ekonomi dari berita.
+TUGAS UTAMA: Tentukan apakah berita ini BENAR-BENAR BERITA EKONOMI KABUPATEN LAMONGAN atau BUKAN.
 
-============================================================
-TUGAS 1 — TENTUKAN APAKAH BERITA RELEVAN
-============================================================
-Tentukan: ekonomi = true jika berhubungan dengan ekonomi, pembangunan, kesejahteraan, bisnis, UMKM, pertanian, perdagangan, pasar, harga, inflasi, industri, investasi, tenaga kerja, pariwisata, infrastruktur, pajak, pendapatan daerah di Kabupaten Lamongan.
+KRITERIA KETAT (ekonomi = true):
+- Membahas aktivitas usaha, UMKM, pasar, perdagangan, pertanian, perikanan, produksi, harga barang, inflasi, industri, investasi, tenaga kerja, infrastruktur ekonomi, atau pendapatan daerah di Kabupaten Lamongan.
 
-Tentukan: ekonomi = false jika tidak berhubungan dengan aspek ekonomi Lamongan (misal: kriminal murni, politik murni, olahraga murni, kecelakaan murni).
+KRITERIA TOLAK (ekonomi = false):
+- Berita Olahraga / Sepak Bola (Persela, Liga 2, Bursa Transfer, dll) -> WAJIB FALSE.
+- Berita Kriminalitas Murni (Pencurian, Kasus Hukum, Korupsi Politik, Pembunuhan) -> WAJIB FALSE.
+- Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
+- Berita Hiburan / Karnaval / Wayang / Musik tanpa transaksi ekonomi nyata -> WAJIB FALSE.
+- Berita luar daerah yang cuma menyebut nama Lamongan sepintas -> WAJIB FALSE.
 
-============================================================
-TUGAS 2 — SEKTOR LAPANGAN USAHA BPS
-============================================================
-Jika ekonomi = true, pilih TEPAT SATU sektor dari daftar BPS ini:
+Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
 - A - Pertanian, Kehutanan, dan Perikanan
 - B - Pertambangan dan Penggalian
 - C - Industri Pengolahan
@@ -156,28 +155,15 @@ Jika ekonomi = true, pilih TEPAT SATU sektor dari daftar BPS ini:
 - Q - Jasa Kesehatan dan Kegiatan Sosial
 - R,S,T,U - Jasa Lainnya
 
-============================================================
-TUGAS 3 — ISU EKONOMI
-============================================================
-Pilih SATU isu ekonomi utama yang paling sesuai (Misal: UMKM, Pertanian, Perikanan, Perdagangan, Harga dan Inflasi, Investasi, Ketenagakerjaan, Pariwisata, Infrastruktur, Ekonomi Daerah, Industri, Keuangan, dll).
-
-============================================================
-TUGAS 4 — RINGKASAN SINGKAT
-============================================================
-Buat ringkasan SANGAT SINGKAT (maksimal 2 kalimat, sekitar 30–45 kata). Ambil poin penting dari ISI BERITA, jangan cuma mengulang judul. Sebutkan angka/data penting dan dampak jika ada.
-
-============================================================
-OUTPUT
-============================================================
-Jawab HANYA JSON valid persis seperti ini:
+Jawab HANYA JSON valid:
 {{
     "ekonomi": true,
-    "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
-    "isu_ekonomi": "Pertanian",
-    "ringkasan": "Ringkasan singkat maksimal 2 kalimat dari isi berita."
+    "sektor": "KODE - Nama Sektor",
+    "isu_ekonomi": "Isu Utama Singkat",
+    "ringkasan": "Ringkasan padat maksimal 2 kalimat dari isi berita."
 }}
 
-Jika bukan berita ekonomi:
+Jika tidak relevan (ekonomi = false):
 {{
     "ekonomi": false,
     "sektor": "Tidak Relevan",
@@ -283,12 +269,7 @@ def make_id(title, link):
 
 def analyze_with_gemini(article):
     if not client:
-        return {
-            "ekonomi": True,
-            "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
-            "isu_ekonomi": "Ekonomi Daerah",
-            "ringkasan": article.get("content", "")[:150] + "..."
-        }
+        return {"ekonomi": True, "sektor": "A - Pertanian, Kehutanan, dan Perikanan", "isu_ekonomi": "Ekonomi Daerah", "ringkasan": article.get("content", "")[:150] + "..."}
 
     prompt = AI_CLASSIFICATION_PROMPT.format(
         title=article.get("title", ""),
@@ -329,12 +310,7 @@ def analyze_with_gemini(article):
         }
     except Exception as e:
         logger.error(f"Gemini API Error: {e}")
-        return {
-            "ekonomi": True,
-            "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
-            "isu_ekonomi": "Ekonomi Umum",
-            "ringkasan": article.get("content", "")[:150] + "..."
-        }
+        return {"ekonomi": False}
 
 def fetch_and_process_news():
     raw_articles = []
@@ -355,7 +331,7 @@ def fetch_and_process_news():
                 link = entry.get("link", "")
                 content = clean_text(entry.get("summary", ""))
 
-                if not title or not link or len(content) < 100:
+                if not title or not link or len(content) < 80:
                     continue
 
                 pub_date = datetime.now().strftime("%Y-%m-%d")
@@ -373,7 +349,7 @@ def fetch_and_process_news():
             logger.error(f"Error media {media_name}: {e}")
         progress.progress((i + 1) / total)
 
-    status.info("🧹 Menghapus berita duplikat & menganalisis dengan Gemini AI...")
+    status.info("🧹 Menghapus berita duplikat & menganalisis ketat dengan AI...")
     filtered_articles = remove_duplicate_articles(raw_articles)
 
     final_records = []
@@ -407,16 +383,13 @@ def create_sample_data():
     ])
 
 # ============================================================
-# LOAD & CLEAN DATA
+# LOAD DATA
 # ============================================================
 
 if "data" not in st.session_state:
     if DATA_FILE.exists():
         try:
-            df_loaded = pd.read_csv(DATA_FILE)
-            df_loaded["Sektor"] = df_loaded["Sektor"].replace(["Belum Teridentifikasi", None, ""], "A - Pertanian, Kehutanan, dan Perikanan")
-            df_loaded["Isu Ekonomi"] = df_loaded["Isu Ekonomi"].replace(["Belum Teridentifikasi", None, ""], "Ekonomi Umum")
-            st.session_state.data = df_loaded
+            st.session_state.data = pd.read_csv(DATA_FILE)
         except Exception:
             st.session_state.data = create_sample_data()
     else:
@@ -536,44 +509,42 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN EXCEL RAPI (SESUAI REQUEST MBAK IDA)
+# EKSPOR LAPORAN EXCEL RAPI + AUTO-FIT KOLOM (SESUAI REQUEST)
 # ============================================================
 
-st.markdown('<div class="section-header">📥 Ekspor Laporan Excel / CSV</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">📥 Ekspor Laporan Excel Rapi</div>', unsafe_allow_html=True)
 
 if not filtered.empty:
     exp_df = filtered.copy()
     exp_df["Tanggal Berita"] = exp_df["Tanggal Berita"].dt.strftime("%Y-%m-%d")
     exp_df = exp_df[["Tanggal Berita", "Media", "Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita", "Link Berita"]]
-    
-    c_down1, c_down2 = st.columns(2)
-    
-    # Format CSV Rapi Khusus MS Excel Indonesia (Pemisah Titik Koma ';')
-    csv_data = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
-    c_down1.download_button(
-        label="📄 Download Laporan Format CSV (Rapi Per Kolom)",
-        data=csv_data,
-        file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
+
+    # MENGHASILKAN FILE EXCEL SANGAT RAPI WITH AUTO-FIT SPASI
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        exp_df.to_excel(writer, index=False, sheet_name='Monitoring Berita')
+        worksheet = writer.sheets['Monitoring Berita']
+
+        # Otomatis melebarkan kolom sesuai panjang teks terbesar
+        for col in worksheet.columns:
+            max_len = 0
+            col_letter = openpyxl.utils.get_column_letter(col[0].column)
+            for cell in col:
+                val_str = str(cell.value or '')
+                if len(val_str) > max_len:
+                    max_len = len(val_str)
+            # Beri ruang spasi ekstra + batasi maks 60 biar tidak terlalu lebar
+            worksheet.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 65)
+
+    buffer.seek(0)
+
+    st.download_button(
+        label="📊 Download Laporan Format Excel (.xlsx) Rapi & Pas Kolom",
+        data=buffer,
+        file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
-    
-    # Format True Excel (.xlsx) Rapi
-    try:
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            exp_df.to_excel(writer, index=False, sheet_name='Monitoring Berita')
-        buffer.seek(0)
-        
-        c_down2.download_button(
-            label="📊 Download Laporan Format Excel (.xlsx)",
-            data=buffer,
-            file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-    except Exception:
-        c_down2.info("💡 Pastikan 'openpyxl' sudah terpasang di requirements.txt")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
