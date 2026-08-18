@@ -597,7 +597,7 @@ if not filtered.empty:
 
         buffer.seek(0)
         st.download_button(
-            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
+            label="📊 Download Laporan Excel (.xlsx)",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
