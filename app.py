@@ -520,11 +520,11 @@ if not filtered.empty:
 
     c1, c2 = st.columns(2)
 
-    # 1. Format CSV Rapi Titik Koma (Langsung Terpisah di Excel)
-    csv_data = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
+    # 1. Format CSV Rapi Titik Koma (Otomatis Terpisah Kolom di Excel)
+    csv_str = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
     c1.download_button(
-        label="📄 Download Laporan CSV",
-        data=csv_data,
+        label="📄 Download Laporan CSV (Terpisah Kolom)",
+        data=csv_str,
         file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
         use_container_width=True
@@ -553,13 +553,13 @@ if not filtered.empty:
 
             # Atur Lebar Kolom Spesifik Biar Tidak Bertumpuk / Gak '########'
             col_widths = {
-                'A': 16,  # Tanggal Berita
-                'B': 18,  # Media
+                'A': 18,  # Tanggal Berita
+                'B': 20,  # Media
                 'C': 35,  # Judul Berita
-                'D': 20,  # Isu Ekonomi
-                'E': 35,  # Sektor
-                'F': 45,  # Ringkasan Berita
-                'G': 25   # Link Berita
+                'D': 22,  # Isu Ekonomi
+                'E': 38,  # Sektor
+                'F': 50,  # Ringkasan Berita
+                'G': 30   # Link Berita
             }
 
             for col_letter, width in col_widths.items():
@@ -580,7 +580,7 @@ if not filtered.empty:
             use_container_width=True
         )
     except Exception as e:
-        c2.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt")
+        c2.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt untuk mengaktifkan format .xlsx")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
