@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import quote
+from difflib import SequenceMatcher
 import io
 
 import streamlit as st
@@ -34,7 +35,6 @@ st.markdown("""
     main { background-color: #f8fafc; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
-    /* Header Styling */
     .dashboard-header {
         background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
         padding: 24px;
@@ -46,15 +46,6 @@ st.markdown("""
     .dashboard-title { font-size: 28px; font-weight: 800; margin: 0; color: #ffffff; }
     .dashboard-subtitle { font-size: 14px; color: #e0f2fe; margin-top: 6px; }
 
-    /* Card Container */
-    .css-card {
-        background: white;
-        padding: 18px;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-        margin-bottom: 15px;
-    }
     .section-header {
         font-size: 18px;
         font-weight: 700;
@@ -68,7 +59,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# INISIALISASI GEMINI AI
+# INISIALISASI GEMINI AI & LOGGING
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -88,28 +79,28 @@ if GEMINI_API_KEY:
         logger.error(f"Gagal inisialisasi Gemini Client: {e}")
 
 # ============================================================
-# MASTER SEKTOR BPS & MEDIA
+# MASTER SEKTOR BPS & MEDIA SEARCH
 # ============================================================
 
-SEKTOR = {
-    "A": "Pertanian, Kehutanan, dan Perikanan",
-    "B": "Pertambangan dan Penggalian",
-    "C": "Industri Pengolahan",
-    "D": "Pengadaan Listrik dan Gas",
-    "E": "Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
-    "F": "Konstruksi",
-    "G": "Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
-    "H": "Transportasi dan Pergudangan",
-    "I": "Penyediaan Akomodasi dan Makan Minum",
-    "J": "Informasi dan Komunikasi",
-    "K": "Jasa Keuangan dan Asuransi",
-    "L": "Real Estat",
-    "M,N": "Jasa Perusahaan",
-    "O": "Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
-    "P": "Jasa Pendidikan",
-    "Q": "Jasa Kesehatan dan Kegiatan Sosial",
-    "R,S,T,U": "Jasa Lainnya"
-}
+SEKTOR_BPS = [
+    "A - Pertanian, Kehutanan, dan Perikanan",
+    "B - Pertambangan dan Penggalian",
+    "C - Industri Pengolahan",
+    "D - Pengadaan Listrik dan Gas",
+    "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
+    "F - Konstruksi",
+    "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
+    "H - Transportasi dan Pergudangan",
+    "I - Penyediaan Akomodasi dan Makan Minum",
+    "J - Informasi dan Komunikasi",
+    "K - Jasa Keuangan dan Asuransi",
+    "L - Real Estat",
+    "M,N - Jasa Perusahaan",
+    "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
+    "P - Jasa Pendidikan",
+    "Q - Jasa Kesehatan dan Kegiatan Sosial",
+    "R,S,T,U - Jasa Lainnya"
+]
 
 MEDIA_SEARCH = {
     "KlikJatim.com": "Lamongan ekonomi site:klikjatim.com",
@@ -127,7 +118,83 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# ANALISIS CERDAS GEMINI AI
+# PROMPT AI DARI MBAK IDA
+# ============================================================
+
+AI_CLASSIFICATION_PROMPT = """
+Anda adalah analis berita ekonomi untuk Badan Pusat Statistik (BPS) Kabupaten Lamongan.
+
+Baca JUDUL dan ISI BERITA secara keseluruhan.
+Jangan menentukan hasil hanya berdasarkan kata kunci. Pahami konteks, lokasi, kegiatan, pelaku, angka, dan dampak ekonomi dari berita.
+
+============================================================
+TUGAS 1 — TENTUKAN APAKAH BERITA RELEVAN
+============================================================
+Tentukan: ekonomi = true jika berhubungan dengan ekonomi, pembangunan, kesejahteraan, bisnis, UMKM, pertanian, perdagangan, pasar, harga, inflasi, industri, investasi, tenaga kerja, pariwisata, infrastruktur, pajak, pendapatan daerah di Kabupaten Lamongan.
+
+Tentukan: ekonomi = false jika tidak berhubungan dengan aspek ekonomi Lamongan (misal: kriminal murni, politik murni, olahraga murni, kecelakaan murni).
+
+============================================================
+TUGAS 2 — SEKTOR LAPANGAN USAHA BPS
+============================================================
+Jika ekonomi = true, pilih TEPAT SATU sektor dari daftar BPS ini:
+- A - Pertanian, Kehutanan, dan Perikanan
+- B - Pertambangan dan Penggalian
+- C - Industri Pengolahan
+- D - Pengadaan Listrik dan Gas
+- E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang
+- F - Konstruksi
+- G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor
+- H - Transportasi dan Pergudangan
+- I - Penyediaan Akomodasi dan Makan Minum
+- J - Informasi dan Komunikasi
+- K - Jasa Keuangan dan Asuransi
+- L - Real Estat
+- M,N - Jasa Perusahaan
+- O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib
+- P - Jasa Pendidikan
+- Q - Jasa Kesehatan dan Kegiatan Sosial
+- R,S,T,U - Jasa Lainnya
+
+============================================================
+TUGAS 3 — ISU EKONOMI
+============================================================
+Pilih SATU isu ekonomi utama yang paling sesuai (Misal: UMKM, Pertanian, Perikanan, Perdagangan, Harga dan Inflasi, Investasi, Ketenagakerjaan, Pariwisata, Infrastruktur, Ekonomi Daerah, Industri, Keuangan, dll).
+
+============================================================
+TUGAS 4 — RINGKASAN SINGKAT
+============================================================
+Buat ringkasan SANGAT SINGKAT (maksimal 2 kalimat, sekitar 30–45 kata). Ambil poin penting dari ISI BERITA, jangan cuma mengulang judul. Sebutkan angka/data penting dan dampak jika ada.
+
+============================================================
+OUTPUT
+============================================================
+Jawab HANYA JSON valid persis seperti ini:
+{{
+    "ekonomi": true,
+    "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
+    "isu_ekonomi": "Pertanian",
+    "ringkasan": "Ringkasan singkat maksimal 2 kalimat dari isi berita."
+}}
+
+Jika bukan berita ekonomi:
+{{
+    "ekonomi": false,
+    "sektor": "Tidak Relevan",
+    "isu_ekonomi": "Tidak Relevan",
+    "ringkasan": ""
+}}
+
+DATA BERITA:
+Judul: {title}
+Isi Berita: {content}
+Media: {source}
+Tanggal: {date}
+URL: {url}
+"""
+
+# ============================================================
+# FUNGSI HELPER & DEDUPLIKASI
 # ============================================================
 
 def clean_text(text):
@@ -135,52 +202,102 @@ def clean_text(text):
     text = BeautifulSoup(str(text), "html.parser").get_text(" ")
     return re.sub(r"\s+", " ", text).strip()
 
-def analyze_news_with_ai(title, raw_summary):
+def normalize_text(text):
+    if not text: return ""
+    text = str(text).lower()
+    text = re.sub(r"http\S+|www\S+", "", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def title_similarity(title1, title2):
+    t1, t2 = normalize_text(title1), normalize_text(title2)
+    if not t1 or not t2: return 0
+    return SequenceMatcher(None, t1, t2).ratio()
+
+def article_completeness_score(article):
+    title = str(article.get("title", "") or "")
+    content = str(article.get("content", "") or "")
+    score = 0
+    content_length = len(content)
+
+    if content_length >= 1500: score += 40
+    elif content_length >= 1000: score += 30
+    elif content_length >= 700: score += 20
+    elif content_length >= 400: score += 10
+    else: score += 2
+
+    numbers = re.findall(r"\d+", content)
+    if len(numbers) >= 5: score += 15
+    elif len(numbers) >= 2: score += 10
+    elif len(numbers) >= 1: score += 5
+
+    if '"' in content or "ujar" in content.lower(): score += 10
+
+    for word in ["lamongan", "kecamatan", "desa", "kabupaten"]:
+        if word in content.lower(): score += 3
+
+    economic_words = ["umkm", "usaha", "ekonomi", "pertanian", "perikanan", "perdagangan", "pasar", "harga", "inflasi", "investasi", "produksi", "pajak", "pembangunan", "infrastruktur", "omzet", "petani", "nelayan"]
+    economic_count = sum(1 for word in economic_words if word in content.lower())
+    score += min(economic_count * 2, 20)
+
+    if len(title) >= 40: score += 5
+    return score
+
+def is_duplicate_article(article1, article2):
+    media1, media2 = normalize_text(article1.get("source", "")), normalize_text(article2.get("source", ""))
+    if media1 != media2: return False
+
+    title1, title2 = article1.get("title", ""), article2.get("title", "")
+    if title_similarity(title1, title2) >= 0.80: return True
+
+    content1, content2 = normalize_text(article1.get("content", "")), normalize_text(article2.get("content", ""))
+    if not content1 or not content2: return False
+
+    if SequenceMatcher(None, content1[:5000], content2[:5000]).ratio() >= 0.75: return True
+    return False
+
+def remove_duplicate_articles(articles):
+    selected_articles = []
+    for article in articles:
+        duplicate_index = None
+        for i, selected in enumerate(selected_articles):
+            if is_duplicate_article(article, selected):
+                duplicate_index = i
+                break
+
+        if duplicate_index is None:
+            selected_articles.append(article)
+        else:
+            existing_score = article_completeness_score(selected_articles[duplicate_index])
+            new_score = article_completeness_score(article)
+            if new_score > existing_score:
+                selected_articles[duplicate_index] = article
+    return selected_articles
+
+def make_id(title, link):
+    return hashlib.md5((str(title) + str(link)).encode("utf-8")).hexdigest()
+
+# ============================================================
+# PEMPROSESAN AI GEMINI
+# ============================================================
+
+def analyze_with_gemini(article):
     if not client:
         return {
+            "ekonomi": True,
             "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
-            "isu": "Ekonomi Umum",
-            "ringkasan": raw_summary if raw_summary else title,
-            "relevan": True
+            "isu_ekonomi": "Ekonomi Daerah",
+            "ringkasan": article.get("content", "")[:150] + "..."
         }
 
-    prompt = f"""
-    Kamu adalah pakar analis ekonomi BPS Kabupaten Lamongan.
-    Analisis berita berikut:
-    Judul Berita: {title}
-    Deskripsi: {raw_summary}
+    prompt = AI_CLASSIFICATION_PROMPT.format(
+        title=article.get("title", ""),
+        content=article.get("content", ""),
+        source=article.get("source", ""),
+        date=article.get("date", ""),
+        url=article.get("url", "")
+    )
 
-    Tugas:
-    1. Apakah berita ini berhubungan dengan topik EKONOMI / PEMBANGUNAN / KESEJAHTERAAN / BISNIS / PERTANIAN / USAHA di Kabupaten Lamongan? (Jawab true/false).
-    2. Tentukan Sektor Lapangan Usaha BPS yang paling cocok. Pilihan WAJIB salah satu dari ini:
-       - A - Pertanian, Kehutanan, dan Perikanan
-       - B - Pertambangan dan Penggalian
-       - C - Industri Pengolahan
-       - D - Pengadaan Listrik dan Gas
-       - E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang
-       - F - Konstruksi
-       - G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor
-       - H - Transportasi dan Pergudangan
-       - I - Penyediaan Akomodasi dan Makan Minum
-       - J - Informasi dan Komunikasi
-       - K - Jasa Keuangan dan Asuransi
-       - L - Real Estat
-       - M,N - Jasa Perusahaan
-       - O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib
-       - P - Jasa Pendidikan
-       - Q - Jasa Kesehatan dan Kegiatan Sosial
-       - R,S,T,U - Jasa Lainnya
-    3. Tentukan Isu Ekonomi Utama (Misal: UMKM, Harga dan Inflasi, Pertanian, Perdagangan, Investasi, Ketenagakerjaan, Pariwisata, Infrastruktur, Ekonomi Daerah, dll).
-    4. Buat RINGKASAN CERDAS 2-3 kalimat yang informatif.
-
-    Balas HANYA JSON valid tanpa teks tambahan:
-    {{
-        "relevan": true,
-        "sektor": "KODE - Nama Sektor",
-        "isu": "Nama Isu",
-        "ringkasan": "Isi ringkasan..."
-    }}
-    """
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -191,84 +308,96 @@ def analyze_news_with_ai(title, raw_summary):
             text_resp = text_resp.split("```json")[1].split("```")[0].strip()
         elif "```" in text_resp:
             text_resp = text_resp.split("```")[1].split("```")[0].strip()
-        
-        data = json.loads(text_resp)
+
+        res = json.loads(text_resp)
+        if not res.get("ekonomi", False):
+            return {"ekonomi": False}
+
+        sektor = res.get("sektor", "")
+        if sektor not in SEKTOR_BPS:
+            sektor = "R,S,T,U - Jasa Lainnya"
+
+        ringkasan = res.get("ringkasan", "")
+        sentences = re.split(r"(?<=[.!?])\s+", ringkasan)
+        ringkasan = " ".join(sentences[:2])
+
         return {
-            "relevan": data.get("relevan", True),
-            "sektor": data.get("sektor", "A - Pertanian, Kehutanan, dan Perikanan"),
-            "isu": data.get("isu", "Ekonomi Umum"),
-            "ringkasan": data.get("ringkasan", raw_summary)
+            "ekonomi": True,
+            "sektor": sektor,
+            "isu_ekonomi": str(res.get("isu_ekonomi", "Ekonomi Umum")).strip(),
+            "ringkasan": ringkasan
         }
     except Exception as e:
         logger.error(f"Gemini API Error: {e}")
         return {
-            "relevan": True,
+            "ekonomi": True,
             "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
-            "isu": "Ekonomi Umum",
-            "ringkasan": raw_summary if raw_summary else title
+            "isu_ekonomi": "Ekonomi Umum",
+            "ringkasan": article.get("content", "")[:150] + "..."
         }
 
-def make_id(title, link):
-    return hashlib.md5((str(title) + str(link)).encode("utf-8")).hexdigest()
-
-# ============================================================
-# FETCHING NEWS
-# ============================================================
-
-def fetch_news():
-    all_news = []
+def fetch_and_process_news():
+    raw_articles = []
     progress = st.progress(0)
     status = st.empty()
     items = list(MEDIA_SEARCH.items())
     total = len(items)
 
     for i, (media_name, query) in enumerate(items):
-        status.info(f"🔎 Mengambil & menganalisis berita dari {media_name}...")
+        status.info(f"🔎 Mengambil artikel dari {media_name}...")
         try:
             rss_url = f"https://news.google.com/rss/search?q={quote(query)}&hl=id&gl=ID&ceid=ID:id"
-            response = requests.get(rss_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-            feed = feedparser.parse(response.content)
+            resp = requests.get(rss_url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            feed = feedparser.parse(resp.content)
 
             for entry in feed.entries:
                 title = clean_text(entry.get("title", ""))
                 link = entry.get("link", "")
-                raw_summary = clean_text(entry.get("summary", ""))
+                content = clean_text(entry.get("summary", ""))
 
-                if not title or not link:
-                    continue
-
-                ai_res = analyze_news_with_ai(title, raw_summary)
-                
-                if not ai_res["relevan"]:
+                if not title or not link or len(content) < 100:
                     continue
 
                 pub_date = datetime.now().strftime("%Y-%m-%d")
                 if entry.get("published_parsed"):
                     pub_date = datetime(*entry.published_parsed[:6]).strftime("%Y-%m-%d")
 
-                record = {
-                    "ID": make_id(title, link),
-                    "Tanggal Berita": pub_date,
-                    "Media": media_name,
-                    "Judul Berita": title,
-                    "Isu Ekonomi": ai_res["isu"],
-                    "Sektor": ai_res["sektor"],
-                    "Ringkasan Berita": ai_res["ringkasan"],
-                    "Link Berita": link
-                }
-                all_news.append(record)
+                raw_articles.append({
+                    "title": title,
+                    "content": content,
+                    "source": media_name,
+                    "date": pub_date,
+                    "url": link
+                })
         except Exception as e:
             logger.error(f"Error media {media_name}: {e}")
-
         progress.progress((i + 1) / total)
 
-    status.success("✅ Selesai mengambil berita terbaru!")
+    status.info("🧹 Menghapus berita duplikat & menganalisis dengan Gemini AI...")
+    filtered_articles = remove_duplicate_articles(raw_articles)
+
+    final_records = []
+    for art in filtered_articles:
+        ai_res = analyze_with_gemini(art)
+        if ai_res.get("ekonomi") is True:
+            final_records.append({
+                "ID": make_id(art["title"], art["url"]),
+                "Tanggal Berita": art["date"],
+                "Media": art["source"],
+                "Judul Berita": art["title"],
+                "Isu Ekonomi": ai_res["isu_ekonomi"],
+                "Sektor": ai_res["sektor"],
+                "Ringkasan Berita": ai_res["ringkasan"],
+                "Link Berita": art["url"]
+            })
+
+    status.success("✅ Pengambilan & analisis berita selesai!")
     progress.empty()
 
-    if not all_news:
+    if not final_records:
         return pd.DataFrame()
 
-    df = pd.DataFrame(all_news).drop_duplicates(subset=["ID"]).sort_values("Tanggal Berita", ascending=False)
+    df = pd.DataFrame(final_records).drop_duplicates(subset=["ID"]).sort_values("Tanggal Berita", ascending=False)
     return df
 
 def create_sample_data():
@@ -299,7 +428,6 @@ if "data" not in st.session_state:
 
 with st.sidebar:
     st.title("📰 Dashboard Control")
-    
     if client:
         st.success("🟢 Gemini AI: Active")
     else:
@@ -308,7 +436,7 @@ with st.sidebar:
     st.divider()
     st.subheader("⚙️ Aksi")
     if st.button("🔄 Ambil Berita Terbaru", use_container_width=True):
-        new_data = fetch_news()
+        new_data = fetch_and_process_news()
         if not new_data.empty:
             final = pd.concat([st.session_state.data, new_data], ignore_index=True)
             final = final.drop_duplicates(subset=["ID"]).sort_values("Tanggal Berita", ascending=False)
@@ -338,7 +466,7 @@ with st.sidebar:
     selected_issue = st.multiselect("📊 Isu Ekonomi", sorted(df["Isu Ekonomi"].dropna().unique()))
     keyword = st.text_input("🔎 Cari kata kunci", placeholder="Ketik kata kunci...")
 
-# FILTERING LOGIC
+# FILTERING
 filtered = df.copy()
 if len(date_range) == 2:
     filtered = filtered[(filtered["Tanggal Berita"].dt.date >= date_range[0]) & (filtered["Tanggal Berita"].dt.date <= date_range[1])]
@@ -350,7 +478,7 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD UTAMA
+# TAMPILAN DASHBOARD
 # ============================================================
 
 st.markdown("""
@@ -360,7 +488,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# KPI METRICS CARD
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("📰 Total Berita", f"{len(filtered):,} artikel")
 k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,} artikel")
@@ -369,10 +496,8 @@ k4.metric("🏭 Sektor Terpantau", f"{filtered['Sektor'].nunique():,} sektor")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# GRAFIK ANALISIS
 if not filtered.empty:
     st.markdown('<div class="section-header">📊 Ringkasan Visual & Grafik</div>', unsafe_allow_html=True)
-    
     col1, col2 = st.columns(2)
     with col1:
         sector_df = filtered["Sektor"].value_counts().reset_index()
@@ -393,13 +518,11 @@ if not filtered.empty:
     fig_trend.update_layout(height=300)
     st.plotly_chart(fig_trend, use_container_width=True)
 
-# TABEL MONITORING DATA
 st.markdown('<div class="section-header">📋 Tabel Berita Terfilter</div>', unsafe_allow_html=True)
 
 if not filtered.empty:
     display_df = filtered.copy()
     display_df["Tanggal Berita"] = display_df["Tanggal Berita"].dt.strftime("%Y-%m-%d")
-    
     st.dataframe(
         display_df[["Tanggal Berita", "Media", "Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita", "Link Berita"]],
         column_config={
@@ -413,7 +536,7 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN
+# EKSPOR LAPORAN EXCEL RAPI (SESUAI REQUEST MBAK IDA)
 # ============================================================
 
 st.markdown('<div class="section-header">📥 Ekspor Laporan Excel / CSV</div>', unsafe_allow_html=True)
@@ -425,15 +548,17 @@ if not filtered.empty:
     
     c_down1, c_down2 = st.columns(2)
     
+    # Format CSV Rapi UTF-8 BOM
     csv_data = exp_df.to_csv(index=False, encoding="utf-8-sig")
     c_down1.download_button(
-        label="📄 Download Laporan Format CSV (Bisa Rapi di Excel)",
+        label="📄 Download Laporan Format CSV",
         data=csv_data,
         file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
         use_container_width=True
     )
     
+    # Format True Excel (.xlsx) Rapi
     try:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -448,7 +573,7 @@ if not filtered.empty:
             use_container_width=True
         )
     except Exception:
-        c_down2.info("💡 Untuk aktifkan tombol .xlsx, pastikan 'openpyxl' ada di requirements.txt")
+        c_down2.info("💡 Pastikan 'openpyxl' sudah terpasang di requirements.txt")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
