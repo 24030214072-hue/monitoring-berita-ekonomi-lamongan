@@ -551,10 +551,10 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN EXCEL / CSV
+# EKSPOR LAPORAN EXCEL 
 # ============================================================
 
-st.markdown('<div class="section-header">📥 Ekspor Laporan Excel / CSV</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">📥 Ekspor Laporan Excel </div>', unsafe_allow_html=True)
 
 if not filtered.empty:
     exp_df = filtered.copy()
