@@ -450,7 +450,7 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD
+# TAMPILAN DASHBOARD (ANGKA STATISTIK BERSiH TANPA TULISAN DESAKAN)
 # ============================================================
 
 st.markdown("""
@@ -460,11 +460,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# DIPERBAIKI SESUAI KEINGINAN MBAK IDA: Hapus tulisan 'artikel', 'media', 'sektor' biar tidak semrawut
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("📰 Total Berita", f"{len(filtered):,} artikel")
-k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,} artikel")
-k3.metric("🌐 Sumber Media", f"{filtered['Media'].nunique():,} media")
-k4.metric("🏭 Sektor Terpantau", f"{filtered['Sektor'].nunique():,} sektor")
+k1.metric("📰 Total Berita", f"{len(filtered):,}")
+k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,}")
+k3.metric("🌐 Sumber Media", f"{filtered['Media'].nunique():,}")
+k4.metric("🏭 Sektor Terpantau", f"{filtered['Sektor'].nunique():,}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -520,7 +521,7 @@ if not filtered.empty:
 
     c1, c2 = st.columns(2)
 
-    # 1. Format CSV Rapi Titik Koma (Otomatis Terpisah Kolom di Excel)
+    # 1. Format CSV Rapi Titik Koma
     csv_str = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
     c1.download_button(
         label="📄 Download Laporan CSV (Terpisah Kolom)",
