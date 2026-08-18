@@ -564,13 +564,7 @@ if not filtered.empty:
     c1, c2 = st.columns(2)
 
     csv_str = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
-    c1.download_button(
-        label="📄 Download Laporan CSV (Terpisah Kolom)",
-        data=csv_str,
-        file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
+   
 
     try:
         import openpyxl
