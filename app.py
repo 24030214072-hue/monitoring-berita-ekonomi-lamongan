@@ -28,12 +28,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# CSS Khusus: Menghilangkan tombol melayang 'Download as CSV' bawaan Streamlit di atas tabel
 st.markdown("""
 <meta name="google-site-verification" content="xrwK_BByxvJAfptvhoOoeWNHSvdb4vcGkTLxIz8k3ls" />
 <style>
     main { background-color: #f8fafc; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
+    /* HILANGKAN TOMBOL CSV BAWAAN STREAMLIT BIAR NGAK SALAH KLIK */
+    [data-testid="stElementToolbar"] {
+        display: none !important;
+    }
+
     .dashboard-header {
         background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
         padding: 24px;
@@ -290,7 +296,6 @@ def analyze_with_gemini(article):
     title_text = article.get("title", "")
     content_text = article.get("content", "")
 
-    # Jika isi berita pendek, lakukan scraping artikel asli
     if len(content_text) < 150:
         fetched_content = fetch_full_article_content(article.get("url", ""))
         if fetched_content:
@@ -334,7 +339,6 @@ def analyze_with_gemini(article):
 
         ringkasan = str(res.get("ringkasan", "")).strip()
 
-        # Proteksi Maksimal: Jika AI tidak sengaja mengulang judul, ganti otomatis dengan uraian
         if normalize_text(ringkasan) == normalize_text(title_text) or len(ringkasan) < 15:
             if len(content_text) > 80:
                 ringkasan = content_text[:180] + "..."
@@ -551,20 +555,15 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN EXCEL 
+# EKSPOR LAPORAN EXCEL RESMI (.XLSX)
 # ============================================================
 
-st.markdown('<div class="section-header">📥 Ekspor Laporan Excel </div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">📥 Ekspor Laporan Excel</div>', unsafe_allow_html=True)
 
 if not filtered.empty:
     exp_df = filtered.copy()
     exp_df["Tanggal Berita"] = exp_df["Tanggal Berita"].dt.strftime("%Y-%m-%d")
     exp_df = exp_df[["Tanggal Berita", "Media", "Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita", "Link Berita"]]
-
-    c1, c2 = st.columns(2)
-
-    csv_str = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
-   
 
     try:
         import openpyxl
@@ -597,15 +596,15 @@ if not filtered.empty:
                     cell.alignment = body_alignment
 
         buffer.seek(0)
-        c2.download_button(
-            label="📊 Download Laporan Excel (.xlsx)",
+        st.download_button(
+            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
     except Exception as e:
-        c2.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt")
+        st.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
