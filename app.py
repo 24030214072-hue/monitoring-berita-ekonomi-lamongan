@@ -117,7 +117,7 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# PROMPT AI STRICT (LEBIH KETAT MEMILIH BERITA EKONOMI)
+# PROMPT AI STRICT (FILTRASI LEBIH KETAT SELEKSI EKONOMI)
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
@@ -129,10 +129,10 @@ KRITERIA KETAT (ekonomi = true):
 - Membahas aktivitas usaha, UMKM, pasar, perdagangan, pertanian, perikanan, produksi, harga barang, inflasi, industri, investasi, tenaga kerja, infrastruktur ekonomi, atau pendapatan daerah di Kabupaten Lamongan.
 
 KRITERIA TOLAK (ekonomi = false):
-- Berita Olahraga / Sepak Bola (Persela, Liga 2, Bursa Transfer, dll) -> WAJIB FALSE.
-- Berita Kriminalitas Murni (Pencurian, Kasus Hukum, Korupsi Politik, Pembunuhan) -> WAJIB FALSE.
+- Berita Olahraga / Sepak Bola (Persela, Liga 2, Bursa Transfer, Pertandingan) -> WAJIB FALSE.
+- Berita Kriminalitas Murni (Pencurian, Kasus Hukum, Korupsi Politik, Pembunuhan, Penganiayaan) -> WAJIB FALSE.
 - Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
-- Berita Hiburan / Karnaval / Wayang / Musik tanpa transaksi ekonomi nyata -> WAJIB FALSE.
+- Berita Hiburan / Karnaval / Wayang / Musik / Lomba tanpa transaksi ekonomi nyata -> WAJIB FALSE.
 - Berita luar daerah yang cuma menyebut nama Lamongan sepintas -> WAJIB FALSE.
 
 Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
@@ -508,7 +508,7 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN EXCEL / CSV RAPI
+# EKSPOR LAPORAN EXCEL SUPER RAPI (AUTO STYLING & WRAP TEXT)
 # ============================================================
 
 st.markdown('<div class="section-header">📥 Ekspor Laporan Excel / CSV</div>', unsafe_allow_html=True)
@@ -523,41 +523,64 @@ if not filtered.empty:
     # 1. Format CSV Rapi Titik Koma (Langsung Terpisah di Excel)
     csv_data = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
     c1.download_button(
-        label="📄 Download Laporan CSV (Titik Koma Rapi)",
+        label="📄 Download Laporan CSV",
         data=csv_data,
         file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
         use_container_width=True
     )
 
-    # 2. Format True Excel (.xlsx) dengan Auto-Fit Kolom
+    # 2. Format True Excel (.xlsx) dengan Auto Formatting Rapi
     try:
         import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             exp_df.to_excel(writer, index=False, sheet_name='Monitoring Berita')
             worksheet = writer.sheets['Monitoring Berita']
 
-            # Melebarkan kolom otomatis
-            for col in worksheet.columns:
-                max_len = 0
-                col_letter = openpyxl.utils.get_column_letter(col[0].column)
-                for cell in col:
-                    val_str = str(cell.value or '')
-                    if len(val_str) > max_len:
-                        max_len = len(val_str)
-                worksheet.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 65)
+            # Style Header (Biru BPS & Teks Putih)
+            header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+            header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            
+            # Formatting Header
+            for col_num in range(1, len(exp_df.columns) + 1):
+                cell = worksheet.cell(row=1, column=col_num)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+            # Atur Lebar Kolom Spesifik Biar Tidak Bertumpuk / Gak '########'
+            col_widths = {
+                'A': 16,  # Tanggal Berita
+                'B': 18,  # Media
+                'C': 35,  # Judul Berita
+                'D': 20,  # Isu Ekonomi
+                'E': 35,  # Sektor
+                'F': 45,  # Ringkasan Berita
+                'G': 25   # Link Berita
+            }
+
+            for col_letter, width in col_widths.items():
+                worksheet.column_dimensions[col_letter].width = width
+
+            # Formatting Isi Data (Rata Atas & Auto-Wrap Text)
+            body_alignment = Alignment(vertical="top", wrap_text=True)
+            for row in worksheet.iter_rows(min_row=2, max_row=len(exp_df) + 1, min_col=1, max_col=len(exp_df.columns)):
+                for cell in row:
+                    cell.alignment = body_alignment
 
         buffer.seek(0)
         c2.download_button(
-            label="📊 Download Laporan Excel (.xlsx) Rapi",
+            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-    except Exception:
-        c2.info("💡 Jangan lupa tambahkan 'openpyxl' di requirements.txt untuk aktifkan file .xlsx")
+    except Exception as e:
+        c2.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
