@@ -117,7 +117,7 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# PROMPT AI STRICT (FILTRASI LEBIH KETAT SELEKSI EKONOMI)
+# PROMPT AI STRICT (RINGKASAN WAJIB BEDA DENGAN JUDUL)
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
@@ -129,11 +129,15 @@ KRITERIA KETAT (ekonomi = true):
 - Membahas aktivitas usaha, UMKM, pasar, perdagangan, pertanian, perikanan, produksi, harga barang, inflasi, industri, investasi, tenaga kerja, infrastruktur ekonomi, atau pendapatan daerah di Kabupaten Lamongan.
 
 KRITERIA TOLAK (ekonomi = false):
-- Berita Olahraga / Sepak Bola (Persela, Liga 2, Bursa Transfer, Pertandingan) -> WAJIB FALSE.
-- Berita Kriminalitas Murni (Pencurian, Kasus Hukum, Korupsi Politik, Pembunuhan, Penganiayaan) -> WAJIB FALSE.
+- Berita Olahraga / Sepak Bola (Persela, Liga 2, Bursa Transfer) -> WAJIB FALSE.
+- Berita Kriminalitas Murni (Pencurian, Kasus Hukum, Korupsi Politik, Pembunuhan) -> WAJIB FALSE.
 - Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
-- Berita Hiburan / Karnaval / Wayang / Musik / Lomba tanpa transaksi ekonomi nyata -> WAJIB FALSE.
-- Berita luar daerah yang cuma menyebut nama Lamongan sepintas -> WAJIB FALSE.
+
+============================================================
+ATURAN KHUSUS RINGKASAN:
+- DILARANG KERAS HANYA MENGULANG TULISAN JUDUL BERITA!
+- Buat ringkasan ringkas (1-2 kalimat, maksimal 35 kata) yang menjelaskan isi berita, dampak ekonomi, data angka, atau langkah pemerintah terkait.
+============================================================
 
 Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
 - A - Pertanian, Kehutanan, dan Perikanan
@@ -159,7 +163,7 @@ Jawab HANYA JSON valid:
     "ekonomi": true,
     "sektor": "KODE - Nama Sektor",
     "isu_ekonomi": "Isu Utama Singkat",
-    "ringkasan": "Ringkasan padat maksimal 2 kalimat dari isi berita."
+    "ringkasan": "Uraian ringkas isi berita yang berbeda dari judul berita."
 }}
 
 Jika tidak relevan (ekonomi = false):
@@ -267,12 +271,22 @@ def make_id(title, link):
 # ============================================================
 
 def analyze_with_gemini(article):
+    title_text = article.get("title", "")
+    content_text = article.get("content", "")
+
     if not client:
-        return {"ekonomi": True, "sektor": "A - Pertanian, Kehutanan, dan Perikanan", "isu_ekonomi": "Ekonomi Daerah", "ringkasan": article.get("content", "")[:150] + "..."}
+        # Fallback jika AI Offline: Bikin ringkasan potongan isi (bukan copy-paste judul)
+        fallback_summary = content_text[:150] + "..." if len(content_text) > 50 else title_text
+        return {
+            "ekonomi": True, 
+            "sektor": "A - Pertanian, Kehutanan, dan Perikanan", 
+            "isu_ekonomi": "Ekonomi Daerah", 
+            "ringkasan": fallback_summary
+        }
 
     prompt = AI_CLASSIFICATION_PROMPT.format(
-        title=article.get("title", ""),
-        content=article.get("content", ""),
+        title=title_text,
+        content=content_text,
         source=article.get("source", ""),
         date=article.get("date", ""),
         url=article.get("url", "")
@@ -297,7 +311,12 @@ def analyze_with_gemini(article):
         if sektor not in SEKTOR_BPS:
             sektor = "R,S,T,U - Jasa Lainnya"
 
-        ringkasan = res.get("ringkasan", "")
+        ringkasan = str(res.get("ringkasan", "")).strip()
+        
+        # Validasi tambahan: Jika AI masih secara tidak sengaja menghasilkan ringkasan yang sama persis dengan judul
+        if normalize_text(ringkasan) == normalize_text(title_text) or len(ringkasan) < 10:
+            ringkasan = f"Pemberitaan mengenai {title_text.lower()} di wilayah Kabupaten Lamongan."
+
         sentences = re.split(r"(?<=[.!?])\s+", ringkasan)
         ringkasan = " ".join(sentences[:2])
 
@@ -450,7 +469,7 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD (ANGKA STATISTIK BERSiH TANPA TULISAN DESAKAN)
+# TAMPILAN DASHBOARD (ANGKA STATISTIK BERSIH TANPA TULISAN BIKIN SEMRAWUT)
 # ============================================================
 
 st.markdown("""
@@ -460,7 +479,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# DIPERBAIKI SESUAI KEINGINAN MBAK IDA: Hapus tulisan 'artikel', 'media', 'sektor' biar tidak semrawut
+# Disesuaikan permintaan Mbak Ida: Tanpa tulisan 'artikel', 'media', 'sektor'
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("📰 Total Berita", f"{len(filtered):,}")
 k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,}")
@@ -521,7 +540,15 @@ if not filtered.empty:
 
     c1, c2 = st.columns(2)
 
-
+    # 1. Format CSV Rapi Titik Koma
+    csv_str = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
+    c1.download_button(
+        label="📄 Download Laporan CSV (Terpisah Kolom)",
+        data=csv_str,
+        file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
 
     # 2. Format True Excel (.xlsx) dengan Auto Formatting Rapi
     try:
@@ -566,7 +593,7 @@ if not filtered.empty:
 
         buffer.seek(0)
         c2.download_button(
-            label="📊 Download Laporan Excel (.xlsx)",
+            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
