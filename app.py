@@ -117,7 +117,7 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# PROMPT AI STRICT (RINGKASAN WAJIB BEDA DENGAN JUDUL)
+# PROMPT AI STRICT (RINGKASAN HARUS BEDA DARI JUDUL)
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
@@ -134,9 +134,10 @@ KRITERIA TOLAK (ekonomi = false):
 - Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
 
 ============================================================
-ATURAN KHUSUS RINGKASAN:
-- DILARANG KERAS HANYA MENGULANG TULISAN JUDUL BERITA!
-- Buat ringkasan ringkas (1-2 kalimat, maksimal 35 kata) yang menjelaskan isi berita, dampak ekonomi, data angka, atau langkah pemerintah terkait.
+ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA:
+1. DILARANG KERAS MENULIS TULISAN YANG SAMA PERSIS DENGAN JUDUL BERITA!
+2. Rangkum ISI BERITA menjadi 1-2 kalimat deskriptif (maksimal 30 kata).
+3. Ringkasan harus menceritakan kronologi/fakta/dampak ekonomi/tindakan yang dijelaskan di dalam teks berita.
 ============================================================
 
 Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
@@ -163,7 +164,7 @@ Jawab HANYA JSON valid:
     "ekonomi": true,
     "sektor": "KODE - Nama Sektor",
     "isu_ekonomi": "Isu Utama Singkat",
-    "ringkasan": "Uraian ringkas isi berita yang berbeda dari judul berita."
+    "ringkasan": "Uraian ringkas berita yang sama sekali TIDAK SAMA dengan judul berita."
 }}
 
 Jika tidak relevan (ekonomi = false):
@@ -175,15 +176,15 @@ Jika tidak relevan (ekonomi = false):
 }}
 
 DATA BERITA:
-Judul: {title}
-Isi Berita: {content}
+Judul Berita: {title}
+Isi Artikel Berita: {content}
 Media: {source}
 Tanggal: {date}
 URL: {url}
 """
 
 # ============================================================
-# FUNGSI HELPER & DEDUPLIKASI
+# FUNGSI HELPER & SCRAPING ISI BERITA ASLI
 # ============================================================
 
 def clean_text(text):
@@ -197,6 +198,21 @@ def normalize_text(text):
     text = re.sub(r"http\S+|www\S+", "", text)
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+def fetch_full_article_content(url):
+    """Fungsi khusus untuk mengambil isi paragraf berita dari URL asli"""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(resp.content, "html.parser")
+        paragraphs = soup.find_all("p")
+        text = " ".join([p.get_text() for p in paragraphs if len(p.get_text()) > 30])
+        cleaned = clean_text(text)
+        if len(cleaned) > 100:
+            return cleaned[:1500]
+    except Exception:
+        pass
+    return ""
 
 def title_similarity(title1, title2):
     t1, t2 = normalize_text(title1), normalize_text(title2)
@@ -274,14 +290,19 @@ def analyze_with_gemini(article):
     title_text = article.get("title", "")
     content_text = article.get("content", "")
 
+    # Jika isi berita pendek, lakukan scraping artikel asli
+    if len(content_text) < 150:
+        fetched_content = fetch_full_article_content(article.get("url", ""))
+        if fetched_content:
+            content_text = fetched_content
+
     if not client:
-        # Fallback jika AI Offline: Bikin ringkasan potongan isi (bukan copy-paste judul)
-        fallback_summary = content_text[:150] + "..." if len(content_text) > 50 else title_text
+        summary_text = content_text[:180] + "..." if len(content_text) > 50 else f"Pemberitaan mengenai {title_text.lower()} di Lamongan."
         return {
             "ekonomi": True, 
             "sektor": "A - Pertanian, Kehutanan, dan Perikanan", 
             "isu_ekonomi": "Ekonomi Daerah", 
-            "ringkasan": fallback_summary
+            "ringkasan": summary_text
         }
 
     prompt = AI_CLASSIFICATION_PROMPT.format(
@@ -312,10 +333,13 @@ def analyze_with_gemini(article):
             sektor = "R,S,T,U - Jasa Lainnya"
 
         ringkasan = str(res.get("ringkasan", "")).strip()
-        
-        # Validasi tambahan: Jika AI masih secara tidak sengaja menghasilkan ringkasan yang sama persis dengan judul
-        if normalize_text(ringkasan) == normalize_text(title_text) or len(ringkasan) < 10:
-            ringkasan = f"Pemberitaan mengenai {title_text.lower()} di wilayah Kabupaten Lamongan."
+
+        # Proteksi Maksimal: Jika AI tidak sengaja mengulang judul, ganti otomatis dengan uraian
+        if normalize_text(ringkasan) == normalize_text(title_text) or len(ringkasan) < 15:
+            if len(content_text) > 80:
+                ringkasan = content_text[:180] + "..."
+            else:
+                ringkasan = f"Laporan kegiatan dan informasi terkait {title_text.lower()} di Kabupaten Lamongan."
 
         sentences = re.split(r"(?<=[.!?])\s+", ringkasan)
         ringkasan = " ".join(sentences[:2])
@@ -349,7 +373,7 @@ def fetch_and_process_news():
                 link = entry.get("link", "")
                 content = clean_text(entry.get("summary", ""))
 
-                if not title or not link or len(content) < 80:
+                if not title or not link or len(title) < 10:
                     continue
 
                 pub_date = datetime.now().strftime("%Y-%m-%d")
@@ -367,7 +391,7 @@ def fetch_and_process_news():
             logger.error(f"Error media {media_name}: {e}")
         progress.progress((i + 1) / total)
 
-    status.info("🧹 Menghapus berita duplikat & menganalisis ketat dengan AI...")
+    status.info("🧹 Menghapus berita duplikat & mengambil isi berita lengkap...")
     filtered_articles = remove_duplicate_articles(raw_articles)
 
     final_records = []
@@ -469,7 +493,7 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD (ANGKA STATISTIK BERSIH TANPA TULISAN BIKIN SEMRAWUT)
+# TAMPILAN DASHBOARD
 # ============================================================
 
 st.markdown("""
@@ -479,7 +503,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Disesuaikan permintaan Mbak Ida: Tanpa tulisan 'artikel', 'media', 'sektor'
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("📰 Total Berita", f"{len(filtered):,}")
 k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,}")
@@ -528,7 +551,7 @@ else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
 # ============================================================
-# EKSPOR LAPORAN EXCEL SUPER RAPI (AUTO STYLING & WRAP TEXT)
+# EKSPOR LAPORAN EXCEL / CSV
 # ============================================================
 
 st.markdown('<div class="section-header">📥 Ekspor Laporan Excel / CSV</div>', unsafe_allow_html=True)
@@ -540,7 +563,6 @@ if not filtered.empty:
 
     c1, c2 = st.columns(2)
 
-    # 1. Format CSV Rapi Titik Koma
     csv_str = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
     c1.download_button(
         label="📄 Download Laporan CSV (Terpisah Kolom)",
@@ -550,7 +572,6 @@ if not filtered.empty:
         use_container_width=True
     )
 
-    # 2. Format True Excel (.xlsx) dengan Auto Formatting Rapi
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -560,32 +581,22 @@ if not filtered.empty:
             exp_df.to_excel(writer, index=False, sheet_name='Monitoring Berita')
             worksheet = writer.sheets['Monitoring Berita']
 
-            # Style Header (Biru BPS & Teks Putih)
             header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
             header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
             
-            # Formatting Header
             for col_num in range(1, len(exp_df.columns) + 1):
                 cell = worksheet.cell(row=1, column=col_num)
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-            # Atur Lebar Kolom Spesifik Biar Tidak Bertumpuk / Gak '########'
             col_widths = {
-                'A': 18,  # Tanggal Berita
-                'B': 20,  # Media
-                'C': 35,  # Judul Berita
-                'D': 22,  # Isu Ekonomi
-                'E': 38,  # Sektor
-                'F': 50,  # Ringkasan Berita
-                'G': 30   # Link Berita
+                'A': 18, 'B': 20, 'C': 35, 'D': 22, 'E': 38, 'F': 50, 'G': 30
             }
 
             for col_letter, width in col_widths.items():
                 worksheet.column_dimensions[col_letter].width = width
 
-            # Formatting Isi Data (Rata Atas & Auto-Wrap Text)
             body_alignment = Alignment(vertical="top", wrap_text=True)
             for row in worksheet.iter_rows(min_row=2, max_row=len(exp_df) + 1, min_col=1, max_col=len(exp_df.columns)):
                 for cell in row:
@@ -593,14 +604,14 @@ if not filtered.empty:
 
         buffer.seek(0)
         c2.download_button(
-            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
+            label="📊 Download Laporan Excel (.xlsx)",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
     except Exception as e:
-        c2.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt untuk mengaktifkan format .xlsx")
+        c2.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt")
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")
