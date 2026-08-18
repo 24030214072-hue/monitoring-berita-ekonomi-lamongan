@@ -548,10 +548,10 @@ if not filtered.empty:
     
     c_down1, c_down2 = st.columns(2)
     
-    # Format CSV Rapi UTF-8 BOM
-    csv_data = exp_df.to_csv(index=False, encoding="utf-8-sig")
+    # Format CSV Rapi Khusus MS Excel Indonesia (Pemisah Titik Koma ';')
+    csv_data = exp_df.to_csv(index=False, sep=";", encoding="utf-8-sig")
     c_down1.download_button(
-        label="📄 Download Laporan Format CSV",
+        label="📄 Download Laporan Format CSV (Rapi Per Kolom)",
         data=csv_data,
         file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
