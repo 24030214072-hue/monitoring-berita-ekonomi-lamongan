@@ -4,3 +4,4 @@ plotly
 google-genai
 feedparser
 beautifulsoup4
+openpyxl
