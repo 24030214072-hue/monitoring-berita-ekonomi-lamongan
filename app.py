@@ -674,45 +674,192 @@ if keyword:
 # ============================================================
 # 📌 TAMPILAN DASHBOARD UTAMA
 # ============================================================
+# Lokasi file app.py
+BASE_DIR = Path(__file__).resolve().parent
+
+# Lokasi logo
+BPS_LOGO = BASE_DIR / "logo_bps.png"
+
 
 # ============================================================
-# 🏛️ HEADER DASHBOARD
+# CSS HEADER
 # ============================================================
-
-# Membaca logo BPS
-with open(BPS_LOGO, "rb") as image_file:
-    logo_base64 = base64.b64encode(
-        image_file.read()
-    ).decode("utf-8")
-
 
 st.markdown(
-    f"""
-    <div class="dashboard-header">
+    """
+    <style>
 
-        <img
-            src="data:image/png;base64,{logo_base64}"
-            class="dashboard-logo"
-            alt="Logo BPS"
-        >
+    /* ========================================================
+       HEADER DASHBOARD
+       ======================================================== */
 
-        <div>
+    .dashboard-header {
+        background: linear-gradient(
+            135deg,
+            #1e3a8a 0%,
+            #3b82f6 100%
+        );
 
-            <div class="dashboard-title">
-                MONITORING BERITA EKONOMI LAMONGAN
-            </div>
+        padding: 24px;
 
-            <div class="dashboard-subtitle">
-                Sistem pemantauan media otomatis berbasis AI
-                untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan
-            </div>
+        border-radius: 16px;
 
-        </div>
+        color: white;
 
-    </div>
+        margin-bottom: 25px;
+
+        box-shadow:
+            0 4px 12px rgba(30, 58, 138, 0.15);
+
+        display: flex;
+
+        align-items: center;
+
+        gap: 20px;
+    }
+
+
+    /* ========================================================
+       LOGO
+       ======================================================== */
+
+    .dashboard-logo {
+        width: 75px;
+
+        height: 75px;
+
+        object-fit: contain;
+
+        background: white;
+
+        padding: 8px;
+
+        border-radius: 12px;
+
+        box-shadow:
+            0 2px 8px rgba(0, 0, 0, 0.20);
+    }
+
+
+    /* ========================================================
+       JUDUL
+       ======================================================== */
+
+    .dashboard-title {
+        font-size: 26px;
+
+        font-weight: 800;
+
+        margin: 0;
+
+        color: #ffffff;
+    }
+
+
+    /* ========================================================
+       SUBJUDUL
+       ======================================================== */
+
+    .dashboard-subtitle {
+        font-size: 14px;
+
+        color: #e0f2fe;
+
+        margin-top: 5px;
+
+        line-height: 1.5;
+    }
+
+    </style>
     """,
     unsafe_allow_html=True
 )
+
+
+# ============================================================
+# HEADER DASHBOARD
+# ============================================================
+
+# Membuat container header
+header_container = st.container()
+
+with header_container:
+
+    logo_col, title_col = st.columns(
+        [1, 8],
+        vertical_alignment="center"
+    )
+
+    # --------------------------------------------------------
+    # LOGO BPS
+    # --------------------------------------------------------
+
+    with logo_col:
+
+        if BPS_LOGO.exists():
+
+            st.image(
+                str(BPS_LOGO),
+                width=75
+            )
+
+        else:
+
+            st.warning(
+                "Logo BPS tidak ditemukan."
+            )
+
+
+    # --------------------------------------------------------
+    # JUDUL DASHBOARD
+    # --------------------------------------------------------
+
+    with title_col:
+
+        st.markdown(
+            """
+            <div style="
+                background: linear-gradient(
+                    135deg,
+                    #1e3a8a 0%,
+                    #3b82f6 100%
+                );
+
+                padding: 20px 24px;
+
+                border-radius: 16px;
+
+                min-height: 100px;
+
+                display: flex;
+
+                flex-direction: column;
+
+                justify-content: center;
+            ">
+
+                <div style="
+                    font-size: 26px;
+                    font-weight: 800;
+                    color: white;
+                    margin-bottom: 5px;
+                ">
+                    MONITORING BERITA EKONOMI LAMONGAN
+                </div>
+
+                <div style="
+                    font-size: 14px;
+                    color: #e0f2fe;
+                    line-height: 1.5;
+                ">
+                    Sistem pemantauan media otomatis berbasis AI
+                    untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan
+                </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 # 4 Kartu Metrik Utama
 k1, k2, k3, k4 = st.columns(4)
