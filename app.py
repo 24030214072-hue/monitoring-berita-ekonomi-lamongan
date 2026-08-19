@@ -26,7 +26,7 @@ BPS_LOGO_URL = "https://www.bps.go.id/images/bps_logo.png"
 
 st.set_page_config(
     page_title="Monitoring Berita Ekonomi Lamongan - BPS",
-    page_icon=BPS_LOGO_URL,  # POIN 3: Icon BPS di tab browser
+    page_icon=BPS_LOGO_URL,  # Icon BPS di tab browser
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -156,7 +156,7 @@ KRITERIA TOLAK (ekonomi = false):
 - Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
 
 ============================================================
-ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA (POIN 1):
+ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA:
 1. DILARANG KERAS MENULIS TULISAN YANG SAMA PERSIS DENGAN JUDUL BERITA!
 2. Rangkum ISI BERITA menjadi 1-2 kalimat ulasan deskriptif (maksimal 30 kata).
 3. Mulailah kalimat ringkasan dengan penjelas seperti "Membahas mengenai...", "Pemerintah daerah mengupayakan...", "Laporan ini mengulas...", dll.
@@ -222,7 +222,7 @@ def normalize_text(text):
     return re.sub(r"\s+", " ", text).strip()
 
 def fetch_full_article_content(url):
-    """Mengambil isi berita dari URL asli dengan penanganan redirect"""
+    """Mengambil isi berita dari URL asli dengan penanganan redirect (Scraping)"""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -242,8 +242,8 @@ def fetch_full_article_content(url):
         logger.error(f"Gagal scrap URL {url}: {e}")
     return ""
 
-# POIN 2: FALLBACK IDENTIFIKASI SEKTOR BPS BERDASARKAN KATA KUNCI
 def match_fallback_sector(text):
+    """Fallback Identifikasi Sektor BPS berbasis Kata Kunci"""
     text_lower = text.lower()
     if any(w in text_lower for w in ["tani", "padi", "panen", "nelayan", "ikan", "sawah", "pupuk", "ternak", "hutan"]):
         return "A - Pertanian, Kehutanan, dan Perikanan"
@@ -345,7 +345,7 @@ def analyze_with_gemini(article):
         content_text = fetched_content
 
     if not client:
-        summary_text = f"Artikel ini membahas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
+        summary_text = f"Artikel ini mengulas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
         return {
             "ekonomi": True, 
             "sektor": match_fallback_sector(title_text + " " + content_text), 
@@ -376,20 +376,19 @@ def analyze_with_gemini(article):
         if not res.get("ekonomi", False):
             return {"ekonomi": False}
 
-        # POIN 2: IDENTIFIKASI SEKTOR BPS DENGAN FALLBACK JIKA AI KOSONG/SALAH
         sektor = res.get("sektor", "")
         if sektor not in SEKTOR_BPS:
             sektor = match_fallback_sector(title_text + " " + content_text)
 
         ringkasan = str(res.get("ringkasan", "")).strip()
 
-        # POIN 1: FILTER STRICT - JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH ULASAN
+        # 🚨 FILTER STRICT: JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH ULASAN
         norm_title = normalize_text(title_text)
         norm_summary = normalize_text(ringkasan)
         
         if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.55 or len(ringkasan) < 20:
             isu = res.get("isu_ekonomi", "ekonomi daerah")
-            ringkasan = f"Pemberitaan ini mengulas tentang {title_text.lower()} yang mencakup isu {isu.lower()} serta dampaknya bagi perekonomian di Kabupaten Lamongan."
+            ringkasan = f"Pemberitaan ini mengulas tentang {title_text.lower()} yang mencakup isu {isu.lower()} serta dampaknya bagi masyarakat dan sektor usaha di Lamongan."
 
         return {
             "ekonomi": True,
@@ -489,7 +488,7 @@ if "data" not in st.session_state:
 # ============================================================
 
 with st.sidebar:
-    st.image(BPS_LOGO_URL, width=120)  # POIN 4: Logo BPS di Sidebar
+    st.image(BPS_LOGO_URL, width=120)  # Logo BPS di Sidebar
     st.title("📰 Dashboard Control")
     if client:
         st.success("🟢 Gemini AI: Active")
@@ -541,7 +540,7 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD (POIN 4: LOGO BPS DI HEADER WEBSITE)
+# TAMPILAN DASHBOARD (LOGO BPS DI HEADER WEBSITE)
 # ============================================================
 
 st.markdown(f"""
