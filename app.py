@@ -327,776 +327,79 @@ if GEMINI_API_KEY:
 
 
 # ============================================================
-# 📊 MASTER 17 SEKTOR LAPANGAN USAHA BPS
+# 🧠 SISTEM ANALISIS BERITA GEMINI AI - VERSI PERBAIKAN
+# ============================================================
+#
+# PERBAIKAN UTAMA:
+#
+# 1. Gemini WAJIB memilih sektor berdasarkan isi.
+# 2. Sektor menggunakan KODE agar tidak mudah gagal:
+#       A, B, C, D, E, F, G, H, I, J, K, L,
+#       MN, O, P, Q, RSTU
+#
+# 3. Jika nama sektor Gemini tidak persis sama,
+#    program akan memperbaikinya berdasarkan kode.
+#
+# 4. Berita ekonomi TIDAK akan dibuang hanya karena
+#    ringkasannya kurang bagus.
+#
+# 5. Jika ringkasan terlalu mirip judul,
+#    Gemini diminta membuat ulang ringkasan.
+#
+# 6. Deduplicasi dilakukan berdasarkan:
+#       - judul sama
+#       - judul sangat mirip
+#       - isi sangat mirip
+#
+# 7. Jika berita sama dari beberapa media,
+#    dipilih artikel dengan isi paling lengkap.
+#
+# 8. Ringkasan WAJIB berdasarkan isi artikel,
+#    bukan judul.
+# ============================================================
+
+
+# ============================================================
+# 📊 MASTER 17 SEKTOR BPS
 # ============================================================
 
 SEKTOR_BPS = {
 
-    "A":
-        "A - Pertanian, Kehutanan, dan Perikanan",
+    "A": "A - Pertanian, Kehutanan, dan Perikanan",
 
-    "B":
-        "B - Pertambangan dan Penggalian",
+    "B": "B - Pertambangan dan Penggalian",
 
-    "C":
-        "C - Industri Pengolahan",
+    "C": "C - Industri Pengolahan",
 
-    "D":
-        "D - Pengadaan Listrik dan Gas",
+    "D": "D - Pengadaan Listrik dan Gas",
 
-    "E":
-        "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
+    "E": "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
 
-    "F":
-        "F - Konstruksi",
+    "F": "F - Konstruksi",
 
-    "G":
-        "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
+    "G": "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
 
-    "H":
-        "H - Transportasi dan Pergudangan",
+    "H": "H - Transportasi dan Pergudangan",
 
-    "I":
-        "I - Penyediaan Akomodasi dan Makan Minum",
+    "I": "I - Penyediaan Akomodasi dan Makan Minum",
 
-    "J":
-        "J - Informasi dan Komunikasi",
+    "J": "J - Informasi dan Komunikasi",
 
-    "K":
-        "K - Jasa Keuangan dan Asuransi",
+    "K": "K - Jasa Keuangan dan Asuransi",
 
-    "L":
-        "L - Real Estat",
+    "L": "L - Real Estat",
 
-    "MN":
-        "M,N - Jasa Perusahaan",
+    "MN": "M,N - Jasa Perusahaan",
 
-    "O":
-        "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
+    "O": "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
 
-    "P":
-        "P - Jasa Pendidikan",
+    "P": "P - Jasa Pendidikan",
 
-    "Q":
-        "Q - Jasa Kesehatan dan Kegiatan Sosial",
+    "Q": "Q - Jasa Kesehatan dan Kegiatan Sosial",
 
-    "RSTU":
-        "R,S,T,U - Jasa Lainnya"
+    "RSTU": "R,S,T,U - Jasa Lainnya"
+
 }
-
-
-# ============================================================
-# ⚙️ PENGATURAN
-# ============================================================
-
-MAX_RESULTS_PER_TOPIC = 10
-
-MAX_TOTAL_CANDIDATES = 80
-
-RSS_WORKERS = 8
-
-ARTICLE_WORKERS = 10
-
-ARTICLE_TIMEOUT = 8
-
-AI_BATCH_SIZE = 5
-
-MAX_CONTENT_FOR_AI = 9000
-
-
-# ============================================================
-# 🔎 TOPIK PENCARIAN
-# ============================================================
-
-SEARCH_TOPICS = [
-
-    "Lamongan ekonomi",
-
-    "Kabupaten Lamongan ekonomi",
-
-    "Pemkab Lamongan ekonomi",
-
-    "Lamongan pertanian",
-
-    "Lamongan perikanan",
-
-    "Lamongan petani",
-
-    "Lamongan tambak",
-
-    "Lamongan UMKM",
-
-    "Lamongan perdagangan",
-
-    "Lamongan pasar",
-
-    "Lamongan industri",
-
-    "Lamongan investasi",
-
-    "Lamongan tenaga kerja",
-
-    "Lamongan harga pangan",
-
-    "Lamongan pembangunan",
-
-    "Lamongan infrastruktur",
-
-    "Lamongan pariwisata",
-
-    "Lamongan keuangan",
-
-    "Lamongan APBD",
-
-    "Lamongan PAD"
-
-]
-
-
-# ============================================================
-# 🧠 PROMPT GEMINI
-# ============================================================
-
-AI_CLASSIFICATION_PROMPT = """
-
-Anda adalah analis berita ekonomi untuk
-Badan Pusat Statistik Kabupaten Lamongan.
-
-Tugas Anda adalah membaca dan memahami ISI ARTIKEL,
-kemudian menentukan:
-
-1. Apakah berita tersebut merupakan berita ekonomi
-   yang berkaitan dengan Kabupaten Lamongan.
-2. Apa aktivitas ekonomi utama dalam berita.
-3. Apa isu ekonomi utamanya.
-4. Apa sektor lapangan usaha BPS yang paling sesuai.
-5. Membuat ringkasan berdasarkan ISI ARTIKEL,
-   bukan berdasarkan judul.
-
-============================================================
-ATURAN PALING PENTING
-============================================================
-
-JANGAN menentukan klasifikasi hanya berdasarkan judul.
-
-WAJIB membaca isi artikel.
-
-Judul hanya digunakan sebagai konteks.
-
-Jika judul mengandung kata ekonomi, pasar, harga,
-UMKM, pemerintah, pembangunan atau petani,
-tetapi isi sebenarnya bukan berita ekonomi,
-maka ekonomi = false.
-
-Isi artikel adalah sumber utama keputusan.
-
-============================================================
-1. TENTUKAN BERITA EKONOMI
-============================================================
-
-ekonomi = true jika isi artikel membahas aktivitas
-ekonomi yang terjadi di Kabupaten Lamongan atau
-berdampak langsung terhadap aktivitas ekonomi Lamongan.
-
-Contoh:
-
-- pertanian
-- perkebunan
-- kehutanan
-- perikanan
-- tambak
-- peternakan
-- produksi
-- industri
-- perdagangan
-- pasar
-- UMKM
-- koperasi
-- investasi
-- tenaga kerja
-- upah
-- harga barang
-- distribusi barang
-- transportasi
-- pergudangan
-- konstruksi
-- pembangunan infrastruktur ekonomi
-- hotel
-- restoran
-- kuliner
-- pariwisata
-- perbankan
-- kredit
-- pembiayaan
-- asuransi
-- real estat
-- teknologi dan komunikasi
-- pendidikan
-- kesehatan
-- jasa perusahaan
-- administrasi pemerintah yang berkaitan dengan
-  aktivitas ekonomi, anggaran, pendapatan, belanja,
-  pajak atau kebijakan ekonomi.
-
-============================================================
-2. BUKAN EKONOMI
-============================================================
-
-ekonomi = false jika isi artikel hanya membahas:
-
-- kriminalitas
-- pencurian
-- pembunuhan
-- kecelakaan
-- olahraga
-- Persela
-- politik murni
-- pilkada
-- konflik politik
-- hukum murni
-- kegiatan keagamaan murni
-- hiburan murni
-- kegiatan sosial murni
-- seremoni tanpa dampak ekonomi
-- berita daerah lain yang tidak berkaitan dengan Lamongan.
-
-Jangan memaksakan berita menjadi ekonomi.
-
-============================================================
-3. AKTIVITAS EKONOMI UTAMA
-============================================================
-
-Sebelum menentukan sektor, tentukan:
-
-"Apa kegiatan utama yang sebenarnya dibahas
-dalam isi berita?"
-
-Contoh:
-
-Petani meningkatkan produksi padi
-→ produksi pertanian
-
-Pedagang meningkatkan transaksi
-→ perdagangan
-
-Pabrik mengolah hasil pertanian
-→ industri pengolahan
-
-Pemerintah meningkatkan PAD
-→ administrasi pemerintahan
-
-Bank memberikan kredit UMKM
-→ jasa keuangan
-
-Hotel meningkatkan okupansi
-→ akomodasi
-
-============================================================
-4. 17 SEKTOR BPS
-============================================================
-
-A
-Pertanian, Kehutanan, dan Perikanan
-
-B
-Pertambangan dan Penggalian
-
-C
-Industri Pengolahan
-
-D
-Pengadaan Listrik dan Gas
-
-E
-Pengadaan Air, Pengelolaan Sampah,
-Limbah dan Daur Ulang
-
-F
-Konstruksi
-
-G
-Perdagangan Besar dan Eceran;
-Reparasi Mobil dan Sepeda Motor
-
-H
-Transportasi dan Pergudangan
-
-I
-Penyediaan Akomodasi dan Makan Minum
-
-J
-Informasi dan Komunikasi
-
-K
-Jasa Keuangan dan Asuransi
-
-L
-Real Estat
-
-MN
-Jasa Perusahaan
-
-O
-Administrasi Pemerintahan, Pertahanan
-dan Jaminan Sosial Wajib
-
-P
-Jasa Pendidikan
-
-Q
-Jasa Kesehatan dan Kegiatan Sosial
-
-RSTU
-Jasa Lainnya
-
-============================================================
-5. PEMETAAN SEKTOR
-============================================================
-
-A = Pertanian, Kehutanan, dan Perikanan
-
-Gunakan A untuk:
-
-- padi
-- jagung
-- tebu
-- tembakau
-- kedelai
-- hortikultura
-- sayuran
-- buah
-- perkebunan
-- petani
-- sawah
-- panen
-- bibit
-- pupuk
-- irigasi pertanian
-- peternakan
-- sapi
-- kambing
-- ayam
-- telur
-- susu
-- nelayan
-- ikan
-- tambak
-- budidaya ikan
-- perikanan tangkap
-- hasil laut
-- kehutanan
-
-Jika inti berita adalah produksi pertanian,
-peternakan, kehutanan atau perikanan,
-gunakan A.
-
-------------------------------------------------------------
-
-B = Pertambangan dan Penggalian
-
-Gunakan B untuk:
-
-- tambang
-- pasir
-- batu
-- mineral
-- galian
-- eksplorasi tambang
-- produksi bahan tambang
-
-------------------------------------------------------------
-
-C = Industri Pengolahan
-
-Gunakan C jika inti kegiatan adalah
-mengolah bahan menjadi produk.
-
-Contoh:
-
-- pabrik
-- manufaktur
-- industri makanan
-- industri minuman
-- industri tekstil
-- industri mebel
-- industri pengolahan hasil pertanian
-- industri pengolahan ikan
-- produksi barang di pabrik
-
-Jika hanya menjual produk → G.
-
-Jika mengolah produk menjadi barang → C.
-
-------------------------------------------------------------
-
-D = Pengadaan Listrik dan Gas
-
-Gunakan D untuk:
-
-- pembangkit listrik
-- distribusi listrik
-- penyediaan listrik
-- jaringan listrik
-- gas
-- energi
-
-------------------------------------------------------------
-
-E = Pengadaan Air, Pengelolaan Sampah,
-Limbah dan Daur Ulang
-
-Gunakan E untuk:
-
-- air bersih
-- pengelolaan sampah
-- limbah
-- daur ulang
-- pengelolaan air
-- sanitasi yang berkaitan dengan pengelolaan lingkungan
-
-------------------------------------------------------------
-
-F = Konstruksi
-
-Gunakan F untuk:
-
-- pembangunan jalan
-- pembangunan jembatan
-- pembangunan gedung
-- pembangunan pasar
-- pembangunan irigasi
-- pembangunan infrastruktur
-- proyek konstruksi
-- rehabilitasi bangunan
-- pekerjaan konstruksi
-
-------------------------------------------------------------
-
-G = Perdagangan Besar dan Eceran;
-Reparasi Mobil dan Sepeda Motor
-
-Gunakan G untuk:
-
-- pasar
-- pedagang
-- toko
-- jual beli
-- transaksi perdagangan
-- distribusi perdagangan
-- UMKM yang aktivitas utamanya menjual barang
-- perdagangan hasil pertanian
-- perdagangan hasil perikanan
-- grosir
-- eceran
-- pusat perdagangan
-- dealer kendaraan
-- bengkel
-- reparasi kendaraan
-
-UMKM TIDAK otomatis G.
-
-Jika UMKM memproduksi barang → C.
-
-Jika UMKM menjual barang → G.
-
-Jika UMKM restoran → I.
-
-Jika UMKM jasa → sektor jasa yang sesuai.
-
-------------------------------------------------------------
-
-H = Transportasi dan Pergudangan
-
-Gunakan H untuk:
-
-- angkutan
-- transportasi
-- logistik
-- ekspedisi
-- pengiriman
-- pergudangan
-- terminal
-- distribusi logistik
-
-------------------------------------------------------------
-
-I = Penyediaan Akomodasi dan Makan Minum
-
-Gunakan I untuk:
-
-- hotel
-- penginapan
-- homestay
-- restoran
-- rumah makan
-- warung makan
-- katering
-- usaha makanan dan minuman
-- kuliner
-
-------------------------------------------------------------
-
-J = Informasi dan Komunikasi
-
-Gunakan J untuk:
-
-- telekomunikasi
-- internet
-- teknologi informasi
-- aplikasi
-- platform digital
-- media
-- penyiaran
-- layanan komunikasi
-
-------------------------------------------------------------
-
-K = Jasa Keuangan dan Asuransi
-
-Gunakan K untuk:
-
-- bank
-- perbankan
-- kredit
-- pinjaman
-- pembiayaan
-- fintech
-- koperasi simpan pinjam
-- asuransi
-- lembaga keuangan
-
-------------------------------------------------------------
-
-L = Real Estat
-
-Gunakan L untuk:
-
-- properti
-- perumahan
-- real estat
-- jual beli properti
-- sewa properti
-- kawasan perumahan
-
-------------------------------------------------------------
-
-MN = Jasa Perusahaan
-
-Gunakan MN untuk:
-
-- konsultasi bisnis
-- akuntansi
-- jasa profesional
-- jasa perusahaan
-- jasa administrasi bisnis
-- jasa arsitektur
-- jasa hukum bisnis
-
-------------------------------------------------------------
-
-O = Administrasi Pemerintahan,
-Pertahanan dan Jaminan Sosial Wajib
-
-Gunakan O jika inti kegiatan adalah:
-
-- administrasi pemerintahan
-- APBD
-- PAD
-- pajak daerah
-- retribusi
-- pendapatan pemerintah
-- belanja pemerintah
-- pengelolaan anggaran
-- kebijakan administrasi pemerintah
-- jaminan sosial wajib
-
-CATATAN:
-
-Jika pemerintah hanya menjadi pelaksana program,
-tetapi kegiatan utama adalah pertanian,
-perdagangan, konstruksi atau sektor lain,
-pilih sektor aktivitas tersebut.
-
-Contoh:
-
-"Pemerintah memberikan bantuan pupuk kepada petani"
-
-→ A
-
-bukan O.
-
-Contoh:
-
-"Pemkab meningkatkan target PAD"
-
-→ O.
-
-------------------------------------------------------------
-
-P = Jasa Pendidikan
-
-Gunakan P untuk:
-
-- sekolah
-- perguruan tinggi
-- pendidikan
-- pelatihan
-- lembaga pendidikan
-- usaha pendidikan
-
-------------------------------------------------------------
-
-Q = Jasa Kesehatan dan Kegiatan Sosial
-
-Gunakan Q untuk:
-
-- rumah sakit
-- klinik
-- puskesmas
-- layanan kesehatan
-- tenaga kesehatan
-- fasilitas kesehatan
-- kegiatan sosial sebagai layanan sosial
-
-------------------------------------------------------------
-
-RSTU = Jasa Lainnya
-
-Gunakan RSTU jika aktivitas utama termasuk
-jasa lain yang tidak masuk A-Q.
-
-Contoh:
-
-- kesenian
-- hiburan
-- rekreasi
-- jasa personal
-- jasa lainnya
-
-============================================================
-6. JIKA BERITA MEMILIKI BEBERAPA SEKTOR
-============================================================
-
-Pilih HANYA SATU.
-
-Pilih sektor yang:
-
-1. paling dominan;
-2. menjadi aktivitas ekonomi utama;
-3. paling banyak dibahas;
-4. paling berhubungan dengan inti peristiwa.
-
-Jangan memilih sektor hanya karena kata tersebut
-muncul satu kali.
-
-============================================================
-7. RINGKASAN
-============================================================
-
-Ringkasan WAJIB berdasarkan ISI ARTIKEL.
-
-JANGAN hanya mengulang judul.
-
-Ringkasan harus menjelaskan:
-
-- apa yang terjadi;
-- siapa yang terlibat;
-- lokasi jika tersedia;
-- angka penting jika tersedia;
-- tujuan atau penyebab jika disebutkan;
-- dampak atau hasil jika disebutkan.
-
-Panjang 2-4 kalimat.
-
-Sekitar 50-100 kata.
-
-Masukkan angka/data penting jika tersedia.
-
-Jangan membuat angka atau fakta baru.
-
-Jangan mengambil informasi dari luar artikel.
-
-============================================================
-8. CONTOH RINGKASAN BURUK
-============================================================
-
-Judul:
-Harga Cabai di Lamongan Naik
-
-Ringkasan buruk:
-"Harga cabai di Lamongan mengalami kenaikan."
-
-Itu hanya mengulang judul.
-
-============================================================
-9. CONTOH RINGKASAN YANG BENAR
-============================================================
-
-Jika artikel menjelaskan harga sebelumnya,
-harga sekarang dan penyebabnya:
-
-"Harga cabai rawit di sejumlah pasar Lamongan meningkat
-dari Rp60 ribu menjadi Rp75 ribu per kilogram. Pedagang
-menyebut kenaikan tersebut dipengaruhi terbatasnya pasokan,
-sementara permintaan masyarakat masih tinggi."
-
-============================================================
-10. OUTPUT
-============================================================
-
-Jawab HANYA JSON ARRAY.
-
-Format:
-
-[
-    {
-        "id": "123",
-        "ekonomi": true,
-        "aktivitas_utama": "produksi pertanian",
-        "sektor_kode": "A",
-        "isu_ekonomi": "Pertanian dan Produksi Pangan",
-        "ringkasan": "Ringkasan berdasarkan isi artikel."
-    }
-]
-
-Jika bukan ekonomi:
-
-[
-    {
-        "id": "123",
-        "ekonomi": false,
-        "aktivitas_utama": "",
-        "sektor_kode": "",
-        "isu_ekonomi": "Tidak Relevan",
-        "ringkasan": ""
-    }
-]
-
-JANGAN memberikan markdown.
-
-JANGAN memberikan penjelasan di luar JSON.
-"""
-
-
-# ============================================================
-# 🧹 CLEAN TEXT
-# ============================================================
-
-def clean_text(text):
-
-    if not text:
-        return ""
-
-    text = BeautifulSoup(
-        str(text),
-        "html.parser"
-    ).get_text(" ")
-
-    return re.sub(
-        r"\s+",
-        " ",
-        text
-    ).strip()
 
 
 # ============================================================
@@ -1112,7 +415,7 @@ def normalize_text(text):
 
     text = re.sub(
         r"http\S+|www\S+",
-        "",
+        " ",
         text
     )
 
@@ -1122,30 +425,28 @@ def normalize_text(text):
         text
     )
 
-    return re.sub(
+    text = re.sub(
         r"\s+",
         " ",
         text
-    ).strip()
+    )
+
+    return text.strip()
 
 
 # ============================================================
-# 🔤 TOKEN TEKS
+# 🔤 TOKEN
 # ============================================================
 
 def text_tokens(text):
 
-    normalized = normalize_text(
-        text
-    )
-
     return set(
-        normalized.split()
+        normalize_text(text).split()
     )
 
 
 # ============================================================
-# 📊 JACCARD SIMILARITY
+# 📊 JACCARD
 # ============================================================
 
 def jaccard_similarity(
@@ -1153,17 +454,11 @@ def jaccard_similarity(
     text_b
 ):
 
-    a = text_tokens(
-        text_a
-    )
-
-    b = text_tokens(
-        text_b
-    )
+    a = text_tokens(text_a)
+    b = text_tokens(text_b)
 
     if not a or not b:
-
-        return 0
+        return 0.0
 
     intersection = len(
         a.intersection(b)
@@ -1174,1114 +469,38 @@ def jaccard_similarity(
     )
 
     if union == 0:
-
-        return 0
+        return 0.0
 
     return intersection / union
 
 
 # ============================================================
-# 🆔 ID BERITA
+# 🔍 SIMILARITAS JUDUL
 # ============================================================
 
-def make_id(
-    title,
-    link
+def title_similarity(
+    title_a,
+    title_b
 ):
 
-    return hashlib.md5(
-        (
-            str(title)
-            +
-            str(link)
-        ).encode("utf-8")
-    ).hexdigest()
+    a = normalize_text(title_a)
+    b = normalize_text(title_b)
+
+    if not a or not b:
+        return 0.0
+
+    if a == b:
+        return 1.0
+
+    return SequenceMatcher(
+        None,
+        a,
+        b
+    ).ratio()
 
 
 # ============================================================
-# 🔗 NORMALISASI URL
-# ============================================================
-
-def normalize_url(url):
-
-    if not url:
-        return ""
-
-    url = str(
-        url
-    ).strip()
-
-    url = url.split(
-        "#"
-    )[0]
-
-    return url.rstrip(
-        "/"
-    )
-
-
-# ============================================================
-# 📰 EKSTRAK ISI ARTIKEL
-# ============================================================
-
-def extract_article_content(
-    url,
-    fallback_summary=""
-):
-
-    if not url:
-
-        return {
-
-            "content":
-                clean_text(
-                    fallback_summary
-                ),
-
-            "canonical_url":
-                ""
-
-        }
-
-
-    headers = {
-
-        "User-Agent":
-            (
-                "Mozilla/5.0 "
-                "(Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/120.0.0.0 "
-                "Safari/537.36"
-            )
-
-    }
-
-
-    try:
-
-        response = requests.get(
-
-            url,
-
-            headers=headers,
-
-            timeout=ARTICLE_TIMEOUT,
-
-            allow_redirects=True
-
-        )
-
-
-        if response.status_code != 200:
-
-            return {
-
-                "content":
-                    clean_text(
-                        fallback_summary
-                    ),
-
-                "canonical_url":
-                    normalize_url(
-                        response.url
-                    )
-
-            }
-
-
-        original_soup = BeautifulSoup(
-            response.text,
-            "html.parser"
-        )
-
-
-        # ====================================================
-        # CANONICAL
-        # ====================================================
-
-        canonical_url = ""
-
-        canonical_tag = (
-            original_soup.find(
-                "link",
-                rel="canonical"
-            )
-        )
-
-
-        if canonical_tag:
-
-            canonical_url = normalize_url(
-                canonical_tag.get(
-                    "href",
-                    ""
-                )
-            )
-
-
-        if not canonical_url:
-
-            canonical_url = normalize_url(
-                response.url
-            )
-
-
-        # ====================================================
-        # JSON-LD ARTICLE BODY
-        # ====================================================
-
-        article_body = ""
-
-
-        for script in original_soup.find_all(
-            "script",
-            type="application/ld+json"
-        ):
-
-            try:
-
-                raw_json = (
-                    script.string
-                    or
-                    script.get_text()
-                )
-
-
-                data = json.loads(
-                    raw_json
-                )
-
-
-                objects = []
-
-
-                if isinstance(
-                    data,
-                    list
-                ):
-
-                    objects = data
-
-
-                elif isinstance(
-                    data,
-                    dict
-                ):
-
-                    if "@graph" in data:
-
-                        objects = data[
-                            "@graph"
-                        ]
-
-                    else:
-
-                        objects = [
-                            data
-                        ]
-
-
-                for obj in objects:
-
-                    if not isinstance(
-                        obj,
-                        dict
-                    ):
-
-                        continue
-
-
-                    body = obj.get(
-                        "articleBody",
-                        ""
-                    )
-
-
-                    if body:
-
-                        article_body = clean_text(
-                            body
-                        )
-
-                        break
-
-
-                if len(
-                    article_body
-                ) >= 300:
-
-                    break
-
-
-            except Exception:
-
-                continue
-
-
-        if len(
-            article_body
-        ) >= 300:
-
-            return {
-
-                "content":
-                    article_body,
-
-                "canonical_url":
-                    canonical_url
-
-            }
-
-
-        # ====================================================
-        # BUAT SOUP BERSIH
-        # ====================================================
-
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser"
-        )
-
-
-        for tag in soup.find_all(
-            [
-                "script",
-                "style",
-                "nav",
-                "header",
-                "footer",
-                "aside",
-                "form",
-                "noscript",
-                "iframe",
-                "svg"
-            ]
-        ):
-
-            tag.decompose()
-
-
-        # ====================================================
-        # ARTICLE
-        # ====================================================
-
-        article_tag = soup.find(
-            "article"
-        )
-
-
-        if article_tag:
-
-            article_text = clean_text(
-                article_tag.get_text(
-                    separator=" ",
-                    strip=True
-                )
-            )
-
-
-            if len(
-                article_text
-            ) >= 300:
-
-                return {
-
-                    "content":
-                        article_text,
-
-                    "canonical_url":
-                        canonical_url
-
-                }
-
-
-        # ====================================================
-        # PARAGRAF
-        # ====================================================
-
-        paragraphs = soup.find_all(
-            "p"
-        )
-
-
-        paragraph_list = []
-
-
-        for p in paragraphs:
-
-            text_p = clean_text(
-                p.get_text(
-                    separator=" ",
-                    strip=True
-                )
-            )
-
-
-            if len(
-                text_p
-            ) >= 40:
-
-                paragraph_list.append(
-                    text_p
-                )
-
-
-        article_text = " ".join(
-            paragraph_list
-        )
-
-
-        if len(
-            article_text
-        ) >= 300:
-
-            return {
-
-                "content":
-                    article_text,
-
-                "canonical_url":
-                    canonical_url
-
-            }
-
-
-        # ====================================================
-        # META DESCRIPTION
-        # ====================================================
-
-        meta = soup.find(
-            "meta",
-            attrs={
-                "name":
-                    "description"
-            }
-        )
-
-
-        if meta:
-
-            meta_text = clean_text(
-                meta.get(
-                    "content",
-                    ""
-                )
-            )
-
-
-            if len(
-                meta_text
-            ) >= 100:
-
-                return {
-
-                    "content":
-                        meta_text,
-
-                    "canonical_url":
-                        canonical_url
-
-                }
-
-
-        # ====================================================
-        # FALLBACK RSS
-        # ====================================================
-
-        return {
-
-            "content":
-                clean_text(
-                    fallback_summary
-                ),
-
-            "canonical_url":
-                canonical_url
-
-        }
-
-
-    except Exception as e:
-
-        logger.warning(
-            f"Gagal membaca artikel "
-            f"{url}: {e}"
-        )
-
-
-        return {
-
-            "content":
-                clean_text(
-                    fallback_summary
-                ),
-
-            "canonical_url":
-                ""
-
-        }
-
-
-# ============================================================
-# 📥 LOAD DATA LAMA
-# ============================================================
-
-def load_existing_data():
-
-    if not DATA_FILE.exists():
-
-        return pd.DataFrame()
-
-
-    try:
-
-        df = pd.read_csv(
-            DATA_FILE,
-            encoding="utf-8-sig"
-        )
-
-
-        if df.empty:
-
-            return pd.DataFrame()
-
-
-        return df
-
-
-    except Exception as e:
-
-        logger.error(
-            f"Gagal membaca data lama: {e}"
-        )
-
-        return pd.DataFrame()
-
-
-# ============================================================
-# 🚫 LOAD BERITA DITOLAK
-# ============================================================
-
-def load_rejected_data():
-
-    if not REJECTED_FILE.exists():
-
-        return pd.DataFrame()
-
-
-    try:
-
-        return pd.read_csv(
-            REJECTED_FILE,
-            encoding="utf-8-sig"
-        )
-
-    except Exception:
-
-        return pd.DataFrame()
-
-
-# ============================================================
-# 💾 SIMPAN BERITA DITOLAK
-# ============================================================
-
-def save_rejected_data(
-    rejected_articles
-):
-
-    if not rejected_articles:
-
-        return
-
-
-    new_df = pd.DataFrame(
-        rejected_articles
-    )
-
-
-    old_df = load_rejected_data()
-
-
-    if not old_df.empty:
-
-        combined = pd.concat(
-            [
-                old_df,
-                new_df
-            ],
-            ignore_index=True
-        )
-
-    else:
-
-        combined = new_df
-
-
-    if "URL" in combined.columns:
-
-        combined = (
-            combined
-            .drop_duplicates(
-                subset=[
-                    "URL"
-                ],
-                keep="first"
-            )
-        )
-
-
-    try:
-
-        combined.to_csv(
-
-            REJECTED_FILE,
-
-            index=False,
-
-            encoding="utf-8-sig"
-
-        )
-
-    except Exception as e:
-
-        logger.error(
-            f"Gagal menyimpan berita ditolak: {e}"
-        )
-
-
-# ============================================================
-# 🔤 NORMALISASI JUDUL
-# ============================================================
-
-def normalize_title_for_duplicate(
-    title
-):
-
-    if not title:
-
-        return ""
-
-
-    text = normalize_text(
-        title
-    )
-
-
-    # Kata pembuka yang sering berbeda
-    # tetapi tidak mengubah inti berita.
-
-    stop_phrases = [
-
-        "breaking",
-
-        "update",
-
-        "terbaru",
-
-        "simak",
-
-        "cek",
-
-        "begini",
-
-        "ungkap",
-
-        "fakta"
-
-    ]
-
-
-    words = [
-
-        word
-
-        for word
-        in text.split()
-
-        if word not in stop_phrases
-
-    ]
-
-
-    return " ".join(
-        words
-    )
-
-
-# ============================================================
-# 🆔 CEK ARTIKEL SUDAH ADA
-# ============================================================
-
-def is_already_exists(
-    article,
-    existing_df,
-    rejected_urls
-):
-
-    url = normalize_url(
-        article.get(
-            "url",
-            ""
-        )
-    )
-
-
-    # ========================================================
-    # URL DITOLAK
-    # ========================================================
-
-    if url in rejected_urls:
-
-        return True
-
-
-    if existing_df.empty:
-
-        return False
-
-
-    # ========================================================
-    # URL LAMA
-    # ========================================================
-
-    if "Link Berita" in existing_df.columns:
-
-        existing_urls = {
-
-            normalize_url(x)
-
-            for x in
-            existing_df[
-                "Link Berita"
-            ]
-            .dropna()
-            .astype(str)
-
-        }
-
-
-        if url in existing_urls:
-
-            return True
-
-
-    # ========================================================
-    # JUDUL LAMA
-    # ========================================================
-
-    title = normalize_title_for_duplicate(
-        article.get(
-            "title",
-            ""
-        )
-    )
-
-
-    if not title:
-
-        return False
-
-
-    if "Judul Berita" in existing_df.columns:
-
-        for old_title in (
-
-            existing_df[
-                "Judul Berita"
-            ]
-            .dropna()
-            .astype(str)
-
-        ):
-
-            old_normalized = (
-                normalize_title_for_duplicate(
-                    old_title
-                )
-            )
-
-
-            if title == old_normalized:
-
-                return True
-
-
-    return False
-
-
-# ============================================================
-# 📰 AMBIL RSS
-# ============================================================
-
-def fetch_single_rss(
-    topic
-):
-
-    headers = {
-
-        "User-Agent":
-            (
-                "Mozilla/5.0 "
-                "(Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/120.0.0.0 "
-                "Safari/537.36"
-            )
-
-    }
-
-
-    try:
-
-        rss_url = (
-
-            "https://news.google.com/rss/search?"
-
-            f"q={quote(topic)}"
-
-            "&hl=id"
-
-            "&gl=ID"
-
-            "&ceid=ID:id"
-
-        )
-
-
-        response = requests.get(
-
-            rss_url,
-
-            timeout=8,
-
-            headers=headers
-
-        )
-
-
-        feed = feedparser.parse(
-            response.content
-        )
-
-
-        articles = []
-
-
-        for entry in feed.entries[
-            :MAX_RESULTS_PER_TOPIC
-        ]:
-
-            title = clean_text(
-                entry.get(
-                    "title",
-                    ""
-                )
-            )
-
-
-            link = normalize_url(
-                entry.get(
-                    "link",
-                    ""
-                )
-            )
-
-
-            summary = clean_text(
-                entry.get(
-                    "summary",
-                    ""
-                )
-            )
-
-
-            if (
-                not title
-                or
-                not link
-                or
-                len(title) < 10
-            ):
-
-                continue
-
-
-            source_name = "Berita Online"
-
-
-            if (
-                entry.get("source")
-                and
-                entry.source.get(
-                    "title"
-                )
-            ):
-
-                source_name = clean_text(
-                    entry.source.get(
-                        "title"
-                    )
-                )
-
-
-            pub_date = (
-                datetime.now()
-                .strftime(
-                    "%Y-%m-%d"
-                )
-            )
-
-
-            if entry.get(
-                "published_parsed"
-            ):
-
-                try:
-
-                    pub_date = datetime(
-                        *entry.published_parsed[
-                            :6
-                        ]
-                    ).strftime(
-                        "%Y-%m-%d"
-                    )
-
-                except Exception:
-
-                    pass
-
-
-            articles.append({
-
-                "title":
-                    title,
-
-                "content":
-                    summary,
-
-                "source":
-                    source_name,
-
-                "date":
-                    pub_date,
-
-                "url":
-                    link
-
-            })
-
-
-        return articles
-
-
-    except Exception as e:
-
-        logger.error(
-            f"RSS error {topic}: {e}"
-        )
-
-        return []
-
-
-# ============================================================
-# 📰 AMBIL SEMUA RSS PARALEL
-# ============================================================
-
-def fetch_all_rss():
-
-    all_articles = []
-
-
-    with ThreadPoolExecutor(
-        max_workers=RSS_WORKERS
-    ) as executor:
-
-
-        futures = {
-
-            executor.submit(
-                fetch_single_rss,
-                topic
-            ):
-                topic
-
-            for topic in SEARCH_TOPICS
-
-        }
-
-
-        for future in as_completed(
-            futures
-        ):
-
-            try:
-
-                result = future.result()
-
-                all_articles.extend(
-                    result
-                )
-
-
-            except Exception as e:
-
-                logger.error(
-                    f"RSS worker error: {e}"
-                )
-
-
-    # ========================================================
-    # HAPUS DUPLIKAT URL
-    # ========================================================
-
-    unique = {}
-
-
-    for article in all_articles:
-
-        key = normalize_url(
-            article.get(
-                "url",
-                ""
-            )
-        )
-
-
-        if key:
-
-            unique[key] = article
-
-
-    return list(
-        unique.values()
-    )
-
-
-# ============================================================
-# 📰 ENRICH ARTIKEL
-# ============================================================
-
-def enrich_article(
-    article
-):
-
-    result = extract_article_content(
-
-        article.get(
-            "url",
-            ""
-        ),
-
-        article.get(
-            "content",
-            ""
-        )
-
-    )
-
-
-    article["content"] = result.get(
-        "content",
-        ""
-    )
-
-
-    article["canonical_url"] = result.get(
-        "canonical_url",
-        ""
-    )
-
-
-    return article
-
-
-# ============================================================
-# 📰 ENRICH PARALEL
-# ============================================================
-
-def enrich_articles_parallel(
-    articles,
-    progress=None,
-    status=None
-):
-
-    results = []
-
-
-    total = len(
-        articles
-    )
-
-
-    if total == 0:
-
-        return []
-
-
-    with ThreadPoolExecutor(
-        max_workers=ARTICLE_WORKERS
-    ) as executor:
-
-
-        futures = [
-
-            executor.submit(
-                enrich_article,
-                article
-            )
-
-            for article in articles
-
-        ]
-
-
-        for i, future in enumerate(
-            as_completed(futures),
-            start=1
-        ):
-
-            try:
-
-                article = future.result()
-
-                results.append(
-                    article
-                )
-
-
-            except Exception as e:
-
-                logger.warning(
-                    f"Article worker error: {e}"
-                )
-
-
-            if progress:
-
-                progress.progress(
-                    min(
-                        1.0,
-                        i / total
-                    )
-                )
-
-
-            if status:
-
-                status.info(
-                    f"📖 Membaca isi berita "
-                    f"{i}/{total}..."
-                )
-
-
-    return results
-
-
-# ============================================================
-# 🔍 SIMILARITY ISI
+# 🔍 SIMILARITAS ISI
 # ============================================================
 
 def content_similarity(
@@ -2289,37 +508,32 @@ def content_similarity(
     content_b
 ):
 
+    if not content_a or not content_b:
+        return 0.0
+
     if (
         len(content_a) < 200
         or
         len(content_b) < 200
     ):
-
-        return 0
-
+        return 0.0
 
     a = normalize_text(
         content_a[:6000]
     )
 
-
     b = normalize_text(
         content_b[:6000]
     )
 
-
-    if not a or not b:
-
-        return 0
-
-
-    jaccard = jaccard_similarity(
+    jac = jaccard_similarity(
         a,
         b
     )
 
-
-    if jaccard >= 0.55:
+    # SequenceMatcher hanya dipakai
+    # kalau sudah terlihat mirip
+    if jac >= 0.35:
 
         seq = SequenceMatcher(
             None,
@@ -2327,14 +541,99 @@ def content_similarity(
             b[:3500]
         ).ratio()
 
-
         return max(
-            jaccard,
+            jac,
             seq
         )
 
+    return jac
 
-    return jaccard
+
+# ============================================================
+# 🧠 CEK APAKAH DUA BERITA ADALAH PERISTIWA YANG SAMA
+# ============================================================
+
+def is_same_news(
+    article_a,
+    article_b
+):
+
+    title_a = article_a.get(
+        "title",
+        ""
+    )
+
+    title_b = article_b.get(
+        "title",
+        ""
+    )
+
+    content_a = article_a.get(
+        "content",
+        ""
+    )
+
+    content_b = article_b.get(
+        "content",
+        ""
+    )
+
+
+    # --------------------------------------------------------
+    # 1. JUDUL SAMA PERSIS
+    # --------------------------------------------------------
+
+    if (
+        normalize_text(title_a)
+        ==
+        normalize_text(title_b)
+    ):
+
+        return True
+
+
+    # --------------------------------------------------------
+    # 2. JUDUL SANGAT MIRIP
+    # --------------------------------------------------------
+
+    title_sim = title_similarity(
+        title_a,
+        title_b
+    )
+
+    if title_sim >= 0.90:
+
+        return True
+
+
+    # --------------------------------------------------------
+    # 3. ISI SANGAT MIRIP
+    # --------------------------------------------------------
+
+    content_sim = content_similarity(
+        content_a,
+        content_b
+    )
+
+    if content_sim >= 0.78:
+
+        return True
+
+
+    # --------------------------------------------------------
+    # 4. JUDUL MIRIP + ISI CUKUP MIRIP
+    # --------------------------------------------------------
+
+    if (
+        title_sim >= 0.75
+        and
+        content_sim >= 0.50
+    ):
+
+        return True
+
+
+    return False
 
 
 # ============================================================
@@ -2345,6 +644,13 @@ def article_quality_score(
     article
 ):
 
+    title = clean_text(
+        article.get(
+            "title",
+            ""
+        )
+    )
+
     content = clean_text(
         article.get(
             "content",
@@ -2353,22 +659,16 @@ def article_quality_score(
     )
 
 
-    if not content:
-
-        return 0
-
-
-    score = 0
+    score = 0.0
 
 
     # --------------------------------------------------------
-    # JUMLAH KATA
+    # PANJANG ISI
     # --------------------------------------------------------
 
     word_count = len(
         content.split()
     )
-
 
     score += min(
         word_count / 100,
@@ -2377,7 +677,7 @@ def article_quality_score(
 
 
     # --------------------------------------------------------
-    # JUMLAH KALIMAT
+    # JUMLAH PARAGRAF / KALIMAT
     # --------------------------------------------------------
 
     sentence_count = len(
@@ -2387,7 +687,6 @@ def article_quality_score(
         )
     )
 
-
     score += min(
         sentence_count / 5,
         10
@@ -2395,7 +694,7 @@ def article_quality_score(
 
 
     # --------------------------------------------------------
-    # DATA / ANGKA
+    # ADA ANGKA / DATA
     # --------------------------------------------------------
 
     numbers = re.findall(
@@ -2403,169 +702,85 @@ def article_quality_score(
         content
     )
 
-
     score += min(
-        len(numbers),
-        10
+        len(numbers) * 0.5,
+        8
     )
 
 
     # --------------------------------------------------------
-    # KUTIPAN
+    # ADA INDIKATOR DATA EKONOMI
     # --------------------------------------------------------
 
-    quotation_count = (
-        content.count('"')
-        +
-        content.count("'")
-    )
+    economic_words = [
+
+        "rp",
+        "rupiah",
+        "persen",
+        "%",
+        "ton",
+        "kg",
+        "juta",
+        "miliar",
+        "triliun",
+        "produksi",
+        "pendapatan",
+        "omzet",
+        "transaksi",
+        "harga",
+        "investasi",
+        "petani",
+        "nelayan",
+        "umkm",
+        "perdagangan",
+        "industri",
+        "usaha",
+        "ekonomi"
+
+    ]
 
 
-    if quotation_count >= 2:
+    lower_content = content.lower()
 
-        score += 3
+
+    for word in economic_words:
+
+        if word in lower_content:
+
+            score += 1
 
 
     # --------------------------------------------------------
-    # PERSENTASE
+    # ADA QUOTE / PERNYATAAN
     # --------------------------------------------------------
 
-    if "%" in content:
-
-        score += 3
-
-
-    # --------------------------------------------------------
-    # TAHUN
-    # --------------------------------------------------------
-
-    if re.search(
-        r"\b20\d{2}\b",
-        content
+    if (
+        '"' in content
+        or
+        "ujar" in lower_content
+        or
+        "kata" in lower_content
+        or
+        "menurut" in lower_content
     ):
 
-        score += 2
+        score += 3
+
+
+    # --------------------------------------------------------
+    # ISI TERLALU PENDEK
+    # --------------------------------------------------------
+
+    if word_count < 80:
+
+        score -= 15
 
 
     return score
 
 
 # ============================================================
-# 🔍 DETEKSI BERITA YANG SAMA
-# ============================================================
-
-def is_same_story(
-    article_a,
-    article_b
-):
-
-    title_a = normalize_title_for_duplicate(
-        article_a.get(
-            "title",
-            ""
-        )
-    )
-
-
-    title_b = normalize_title_for_duplicate(
-        article_b.get(
-            "title",
-            ""
-        )
-    )
-
-
-    if not title_a or not title_b:
-
-        return False
-
-
-    # ========================================================
-    # JUDUL SAMA
-    # ========================================================
-
-    if title_a == title_b:
-
-        return True
-
-
-    # ========================================================
-    # JUDUL HAMPIR SAMA
-    # ========================================================
-
-    title_sim = SequenceMatcher(
-        None,
-        title_a,
-        title_b
-    ).ratio()
-
-
-    if title_sim >= 0.93:
-
-        return True
-
-
-    # ========================================================
-    # ISI SANGAT MIRIP
-    # ========================================================
-
-    content_a = article_a.get(
-        "content",
-        ""
-    )
-
-
-    content_b = article_b.get(
-        "content",
-        ""
-    )
-
-
-    if (
-        len(content_a) >= 300
-        and
-        len(content_b) >= 300
-    ):
-
-        content_sim = content_similarity(
-            content_a,
-            content_b
-        )
-
-
-        if content_sim >= 0.78:
-
-            return True
-
-
-    # ========================================================
-    # JUDUL CUKUP MIRIP + ISI CUKUP MIRIP
-    # ========================================================
-
-    if title_sim >= 0.82:
-
-        if (
-            len(content_a) >= 200
-            and
-            len(content_b) >= 200
-        ):
-
-            content_sim = content_similarity(
-                content_a,
-                content_b
-            )
-
-
-            if content_sim >= 0.55:
-
-                return True
-
-
-    return False
-
-
-# ============================================================
-# 🧹 HAPUS DUPLIKAT & PILIH ARTIKEL TERLENGKAP
+# 🏆 PILIH ARTIKEL TERBAIK DARI BERITA YANG SAMA
 # ============================================================
 
 def remove_similar_articles(
@@ -2577,11 +792,11 @@ def remove_similar_articles(
         return []
 
 
-    # ========================================================
-    # ARTIKEL TERLENGKAP DIURUTKAN TERLEBIH DAHULU
-    # ========================================================
+    # --------------------------------------------------------
+    # Urutkan artikel berdasarkan kualitas
+    # --------------------------------------------------------
 
-    articles = sorted(
+    sorted_articles = sorted(
 
         articles,
 
@@ -2595,29 +810,26 @@ def remove_similar_articles(
     selected = []
 
 
-    for article in articles:
+    for article in sorted_articles:
 
         duplicate = False
 
 
         for existing in selected:
 
-            if is_same_story(
+            if is_same_news(
                 article,
                 existing
             ):
 
                 duplicate = True
 
-
                 logger.info(
-                    "Duplikat ditemukan. "
-                    f"Artikel dibuang: "
-                    f"{article.get('title', '')} | "
-                    f"Media: "
-                    f"{article.get('source', '')}"
+                    "Duplikat ditemukan: "
+                    f"{article.get('title', '')} "
+                    "→ mempertahankan artikel "
+                    "dengan isi lebih lengkap."
                 )
-
 
                 break
 
@@ -2633,594 +845,563 @@ def remove_similar_articles(
 
 
 # ============================================================
-# 🧠 NORMALISASI KODE SEKTOR
+# 🔤 NORMALISASI KODE SEKTOR
 # ============================================================
 
 def normalize_sector_code(
-    value
+    code
 ):
 
-    if value is None:
+    if not code:
 
         return ""
 
 
-    value = str(
-        value
+    code = str(
+        code
     ).strip().upper()
 
 
-    # Hilangkan karakter selain huruf
-    value = re.sub(
-        r"[^A-Z]",
-        "",
-        value
+    # Hilangkan karakter yang tidak perlu
+
+    code = code.replace(
+        "SEKTOR",
+        ""
+    )
+
+    code = code.replace(
+        "SEKTOR:",
+        ""
+    )
+
+    code = code.strip()
+
+
+    # Variasi sektor M,N
+
+    if code in [
+        "M,N",
+        "M N",
+        "MN",
+        "M-N",
+        "M & N"
+    ]:
+
+        return "MN"
+
+
+    # Variasi RSTU
+
+    if code in [
+        "R,S,T,U",
+        "R S T U",
+        "RSTU",
+        "R-U",
+        "R,S,T,U"
+    ]:
+
+        return "RSTU"
+
+
+    if code in SEKTOR_BPS:
+
+        return code
+
+
+    # Cari kode di dalam teks
+
+    for key in SEKTOR_BPS:
+
+        if re.search(
+            rf"\b{re.escape(key)}\b",
+            code
+        ):
+
+            return key
+
+
+    return ""
+
+
+# ============================================================
+# 🧠 PERBAIKAN SEKTOR DARI NAMA SEKTOR
+# ============================================================
+
+def detect_sector_from_text(
+    sector_text
+):
+
+    if not sector_text:
+
+        return ""
+
+
+    text = normalize_text(
+        sector_text
     )
 
 
-    aliases = {
+    mapping = {
 
-        "A": "A",
+        "pertanian": "A",
+        "kehutanan": "A",
+        "perikanan": "A",
+        "petani": "A",
+        "nelayan": "A",
+        "tambak": "A",
+        "padi": "A",
+        "jagung": "A",
+        "perkebunan": "A",
 
-        "B": "B",
+        "pertambangan": "B",
+        "tambang": "B",
+        "galian": "B",
+        "pasir": "B",
 
-        "C": "C",
+        "industri": "C",
+        "pabrik": "C",
+        "manufaktur": "C",
+        "produksi barang": "C",
 
-        "D": "D",
+        "listrik": "D",
+        "gas": "D",
+        "energi listrik": "D",
 
-        "E": "E",
+        "air bersih": "E",
+        "sampah": "E",
+        "limbah": "E",
+        "daur ulang": "E",
 
-        "F": "F",
+        "konstruksi": "F",
+        "jalan": "F",
+        "jembatan": "F",
+        "gedung": "F",
+        "pembangunan fisik": "F",
 
-        "G": "G",
+        "perdagangan": "G",
+        "pedagang": "G",
+        "pasar": "G",
+        "toko": "G",
+        "jual beli": "G",
+        "eceran": "G",
+        "grosir": "G",
+        "umkm": "G",
 
-        "H": "H",
+        "transportasi": "H",
+        "angkutan": "H",
+        "logistik": "H",
+        "pergudangan": "H",
+        "distribusi barang": "H",
 
-        "I": "I",
+        "hotel": "I",
+        "restoran": "I",
+        "rumah makan": "I",
+        "penginapan": "I",
+        "kuliner": "I",
+        "akomodasi": "I",
 
-        "J": "J",
+        "informasi": "J",
+        "komunikasi": "J",
+        "telekomunikasi": "J",
+        "digital": "J",
+        "internet": "J",
+        "media": "J",
 
-        "K": "K",
+        "bank": "K",
+        "perbankan": "K",
+        "keuangan": "K",
+        "asuransi": "K",
+        "kredit": "K",
+        "pembiayaan": "K",
 
-        "L": "L",
+        "real estat": "L",
+        "properti": "L",
+        "perumahan": "L",
+        "real estate": "L",
 
-        "MN": "MN",
+        "jasa perusahaan": "MN",
+        "konsultan": "MN",
+        "profesional": "MN",
 
-        "M": "MN",
+        "pemerintah": "O",
+        "pemerintahan": "O",
+        "administrasi pemerintahan": "O",
+        "pertahanan": "O",
 
-        "N": "MN",
+        "pendidikan": "P",
+        "sekolah": "P",
+        "universitas": "P",
+        "kampus": "P",
 
-        "O": "O",
+        "kesehatan": "Q",
+        "rumah sakit": "Q",
+        "puskesmas": "Q",
+        "klinik": "Q",
+        "sosial": "Q",
 
-        "P": "P",
-
-        "Q": "Q",
-
-        "RSTU": "RSTU",
-
-        "R": "RSTU",
-
-        "S": "RSTU",
-
-        "T": "RSTU",
-
-        "U": "RSTU"
+        "pariwisata": "RSTU",
+        "wisata": "RSTU",
+        "hiburan": "RSTU",
+        "olahraga": "RSTU",
+        "jasa lainnya": "RSTU"
 
     }
 
 
-    return aliases.get(
-        value,
-        ""
+    # Cari frasa paling panjang dahulu
+
+    sorted_mapping = sorted(
+
+        mapping.items(),
+
+        key=lambda x: len(x[0]),
+
+        reverse=True
+
     )
 
 
+    for keyword, code in sorted_mapping:
+
+        if keyword in text:
+
+            return code
+
+
+    return ""
+
+
 # ============================================================
-# 🧠 FALLBACK SEKTOR
-# ============================================================
-#
-# Hanya digunakan jika Gemini gagal memberikan
-# kode sektor yang valid.
-#
-# BUKAN untuk menentukan ekonomi/non-ekonomi.
-# Gemini tetap menjadi penentu ekonomi.
+# 🤖 PROMPT GEMINI UTAMA
 # ============================================================
 
-def fallback_sector_from_text(
-    article
+def build_gemini_prompt(
+    articles
 ):
 
-    text = normalize_text(
-        (
-            article.get(
-                "title",
-                ""
-            )
-            +
-            " "
-            +
+    blocks = []
+
+
+    for article in articles:
+
+        article_id = make_id(
+            article["title"],
+            article["url"]
+        )
+
+
+        content = clean_text(
             article.get(
                 "content",
                 ""
             )
         )
-    )
 
 
-    sector_keywords = {
-
-        "A": [
-
-            "padi",
-            "jagung",
-            "petani",
-            "pertanian",
-            "sawah",
-            "panen",
-            "tebu",
-            "tembakau",
-            "perkebunan",
-            "nelayan",
-            "perikanan",
-            "tambak",
-            "ikan",
-            "budidaya",
-            "peternakan",
-            "sapi",
-            "ayam",
-            "kambing"
-
-        ],
-
-
-        "B": [
-
-            "tambang",
-            "pertambangan",
-            "galian",
-            "pasir",
-            "mineral"
-
-        ],
-
-
-        "C": [
-
-            "pabrik",
-            "manufaktur",
-            "industri",
-            "produksi",
-            "pengolahan",
-            "diproduksi",
-            "produksi barang"
-
-        ],
-
-
-        "D": [
-
-            "listrik",
-            "pembangkit",
-            "energi",
-            "gas"
-
-        ],
-
-
-        "E": [
-
-            "sampah",
-            "limbah",
-            "daur ulang",
-            "air bersih",
-            "pengelolaan sampah"
-
-        ],
-
-
-        "F": [
-
-            "konstruksi",
-            "jalan",
-            "jembatan",
-            "gedung",
-            "irigasi",
-            "pembangunan infrastruktur"
-
-        ],
-
-
-        "G": [
-
-            "pasar",
-            "pedagang",
-            "perdagangan",
-            "jual beli",
-            "toko",
-            "transaksi",
-            "eceran",
-            "grosir",
-            "omzet"
-
-        ],
-
-
-        "H": [
-
-            "transportasi",
-            "angkutan",
-            "logistik",
-            "ekspedisi",
-            "pengiriman",
-            "pergudangan"
-
-        ],
-
-
-        "I": [
-
-            "hotel",
-            "restoran",
-            "rumah makan",
-            "warung",
-            "kuliner",
-            "katering",
-            "penginapan"
-
-        ],
-
-
-        "J": [
-
-            "telekomunikasi",
-            "internet",
-            "aplikasi",
-            "digital",
-            "teknologi informasi",
-            "platform"
-
-        ],
-
-
-        "K": [
-
-            "bank",
-            "kredit",
-            "pinjaman",
-            "pembiayaan",
-            "asuransi",
-            "perbankan",
-            "keuangan"
-
-        ],
-
-
-        "L": [
-
-            "properti",
-            "perumahan",
-            "real estat",
-            "perumahan"
-
-        ],
-
-
-        "MN": [
-
-            "konsultan",
-            "akuntansi",
-            "jasa perusahaan",
-            "konsultasi bisnis"
-
-        ],
-
-
-        "O": [
-
-            "apbd",
-            "pad",
-            "pendapatan daerah",
-            "belanja daerah",
-            "pajak daerah",
-            "retribusi daerah"
-
-        ],
-
-
-        "P": [
-
-            "sekolah",
-            "pendidikan",
-            "universitas",
-            "perguruan tinggi",
-            "pelatihan"
-
-        ],
-
-
-        "Q": [
-
-            "rumah sakit",
-            "puskesmas",
-            "klinik",
-            "kesehatan",
-            "tenaga kesehatan"
-
-        ],
-
-
-        "RSTU": [
-
-            "hiburan",
-            "rekreasi",
-            "kesenian",
-            "jasa personal"
-
+        content = content[
+            :MAX_CONTENT_FOR_AI
         ]
 
-    }
+
+        blocks.append(
+
+            f"""
+============================================================
+BERITA ID: {article_id}
+============================================================
+
+MEDIA:
+{article.get("source", "")}
+
+JUDUL:
+{article.get("title", "")}
+
+ISI ARTIKEL:
+{content}
+
+URL:
+{article.get("url", "")}
+
+"""
+
+        )
 
 
-    scores = {}
+    prompt = """
 
+Anda adalah analis berita ekonomi
+Badan Pusat Statistik Kabupaten Lamongan.
 
-    for code, keywords in sector_keywords.items():
+Anda HARUS membaca ISI ARTIKEL, bukan hanya judul.
 
-        score = 0
+Tujuan Anda adalah mengidentifikasi berita ekonomi
+Kabupaten Lamongan secara akurat.
 
+============================================================
+ATURAN 1 — EKONOMI ATAU BUKAN
+============================================================
 
-        for keyword in keywords:
+ekonomi=true jika isi artikel benar-benar membahas
+aktivitas ekonomi atau aktivitas sektor lapangan usaha
+yang terjadi di Kabupaten Lamongan.
 
-            if keyword in text:
+Contohnya:
 
-                score += 1
+- pertanian
+- perikanan
+- perdagangan
+- UMKM
+- industri
+- produksi
+- harga
+- investasi
+- tenaga kerja
+- konstruksi
+- transportasi
+- perbankan
+- pariwisata
+- jasa
+- pendapatan daerah
+- distribusi
+- kegiatan usaha
+- pembangunan yang memiliki aktivitas ekonomi
 
+ekonomi=false jika hanya:
 
-        scores[code] = score
+- kriminal
+- kecelakaan
+- olahraga murni
+- Persela
+- politik murni
+- hukum murni
+- konflik
+- hiburan murni
+- kegiatan seremonial tanpa aspek ekonomi
+- berita daerah lain yang tidak berkaitan dengan Lamongan
 
+Jangan menjadikan berita ekonomi hanya karena judul
+mengandung kata "ekonomi", "UMKM", "pasar",
+"pembangunan", "harga", atau "pemerintah".
 
-    if not scores:
+Baca konteks keseluruhan.
 
-        return ""
+============================================================
+ATURAN 2 — SEKTOR
+============================================================
 
+Jika ekonomi=true, WAJIB memilih tepat SATU kode sektor.
 
-    best_code = max(
-        scores,
-        key=scores.get
+Gunakan kode berikut:
+
+A = Pertanian, Kehutanan, dan Perikanan
+
+B = Pertambangan dan Penggalian
+
+C = Industri Pengolahan
+
+D = Pengadaan Listrik dan Gas
+
+E = Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang
+
+F = Konstruksi
+
+G = Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor
+
+H = Transportasi dan Pergudangan
+
+I = Penyediaan Akomodasi dan Makan Minum
+
+J = Informasi dan Komunikasi
+
+K = Jasa Keuangan dan Asuransi
+
+L = Real Estat
+
+MN = Jasa Perusahaan
+
+O = Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib
+
+P = Jasa Pendidikan
+
+Q = Jasa Kesehatan dan Kegiatan Sosial
+
+RSTU = Jasa Lainnya
+
+============================================================
+ATURAN SEKTOR YANG SANGAT PENTING
+============================================================
+
+Pilih sektor berdasarkan AKTIVITAS EKONOMI UTAMA.
+
+Contoh:
+
+padi, jagung, petani, sawah, panen, nelayan,
+tambak, budidaya ikan
+→ A
+
+pabrik, manufaktur, pengolahan hasil menjadi barang
+→ C
+
+jalan, jembatan, gedung, proyek konstruksi
+→ F
+
+pasar, toko, perdagangan, jual beli, pedagang
+→ G
+
+hotel, restoran, rumah makan, penginapan
+→ I
+
+bank, kredit, pembiayaan, asuransi
+→ K
+
+angkutan, ekspedisi, logistik, gudang
+→ H
+
+internet, telekomunikasi, teknologi informasi
+→ J
+
+sekolah atau aktivitas pendidikan sebagai kegiatan jasa
+→ P
+
+rumah sakit, klinik, puskesmas
+→ Q
+
+wisata, hiburan, olahraga profesional, jasa lainnya
+→ RSTU
+
+PENTING:
+
+Jika berita membahas pemerintah tetapi kegiatan utamanya
+adalah pembangunan jalan, sektor utamanya F.
+
+Jika pemerintah memberikan bantuan kepada petani,
+aktivitas ekonomi utamanya pertanian, maka A.
+
+Jika pemerintah mengadakan pelatihan UMKM,
+lihat aktivitas utamanya. Jika fokus pada usaha/perdagangan
+UMKM, gunakan G.
+
+Jangan otomatis menggunakan O hanya karena ada
+kata "Pemkab", "Bupati", "Dinas", atau "Pemerintah".
+
+============================================================
+ATURAN 3 — ISU EKONOMI
+============================================================
+
+Pilih SATU isu ekonomi utama.
+
+Contoh:
+
+Pertanian dan Produksi Pangan
+Perikanan
+Perdagangan
+UMKM
+Harga Pangan
+Inflasi
+Industri
+Investasi
+Tenaga Kerja
+Konstruksi
+Transportasi
+Keuangan
+Pendapatan Daerah
+Pariwisata
+Ekonomi Desa
+Distribusi Barang
+Pembangunan Ekonomi
+Jasa
+
+============================================================
+ATURAN 4 — RINGKASAN
+============================================================
+
+INI SANGAT PENTING.
+
+Ringkasan TIDAK BOLEH hanya mengubah sedikit kata
+dari judul.
+
+Ringkasan HARUS menjelaskan isi berita.
+
+Gunakan struktur:
+
+1. Apa yang terjadi?
+2. Siapa yang melakukan/terlibat?
+3. Apa angka/data pentingnya?
+4. Apa tujuan atau dampaknya jika tersedia?
+
+Gunakan 2–3 kalimat.
+
+Maksimal 100 kata.
+
+Jangan menggunakan kalimat:
+
+"Pemberitaan ini membahas..."
+"Berita ini membahas..."
+"Artikel ini membahas..."
+
+Langsung jelaskan fakta.
+
+Contoh:
+
+JUDUL:
+"Festival Dayung Tejoasri Catat Transaksi UMKM Rp210 Juta"
+
+RINGKASAN YANG BENAR:
+"Festival Dayung Tejoasri 2026 di Desa Tejoasri,
+Kecamatan Laren, melibatkan 155 pelaku UMKM.
+Kegiatan tersebut mencatat estimasi perputaran ekonomi
+sekitar Rp210 juta yang berasal dari aktivitas perdagangan
+selama pelaksanaan festival."
+
+Jangan membuat fakta yang tidak terdapat dalam artikel.
+
+============================================================
+ATURAN 5 — GUNAKAN ISI ARTIKEL
+============================================================
+
+Jika judul mengatakan sesuatu tetapi isi artikel
+memberikan informasi yang lebih lengkap, gunakan
+informasi dari isi artikel.
+
+Jangan mengarang.
+
+============================================================
+FORMAT OUTPUT
+============================================================
+
+Jawab HANYA JSON ARRAY.
+
+Format:
+
+[
+  {
+    "id": "ID",
+    "ekonomi": true,
+    "sektor_kode": "A",
+    "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
+    "isu_ekonomi": "Pertanian dan Produksi Pangan",
+    "ringkasan": "Penjelasan berdasarkan isi artikel."
+  }
+]
+
+Jika bukan ekonomi:
+
+[
+  {
+    "id": "ID",
+    "ekonomi": false,
+    "sektor_kode": "",
+    "sektor": "Tidak Relevan",
+    "isu_ekonomi": "Tidak Relevan",
+    "ringkasan": ""
+  }
+]
+
+"""
+
+    return prompt + "\n".join(
+        blocks
     )
-
-
-    if scores[best_code] == 0:
-
-        return ""
-
-
-    return best_code
-
-
-# ============================================================
-# 🧠 VALIDASI HASIL GEMINI
-# ============================================================
-
-def validate_ai_result(
-    article,
-    result
-):
-
-    ekonomi = result.get(
-        "ekonomi",
-        False
-    )
-
-
-    # ========================================================
-    # BUKAN EKONOMI
-    # ========================================================
-
-    if ekonomi is not True:
-
-        return {
-
-            "ekonomi":
-                False,
-
-            "sektor":
-                "Tidak Relevan",
-
-            "isu_ekonomi":
-                "Tidak Relevan",
-
-            "ringkasan":
-                ""
-
-        }
-
-
-    # ========================================================
-    # AMBIL KODE SEKTOR DARI GEMINI
-    # ========================================================
-
-    sektor_code = normalize_sector_code(
-        result.get(
-            "sektor_kode",
-            ""
-        )
-    )
-
-
-    # ========================================================
-    # FALLBACK JIKA GEMINI TIDAK MEMBERIKAN KODE VALID
-    # ========================================================
-
-    if sektor_code not in SEKTOR_BPS:
-
-        logger.warning(
-            "Gemini tidak memberikan sektor valid. "
-            "Menggunakan fallback sektor."
-        )
-
-
-        sektor_code = fallback_sector_from_text(
-            article
-        )
-
-
-    # ========================================================
-    # JIKA MASIH TIDAK DITEMUKAN
-    # ========================================================
-
-    if sektor_code not in SEKTOR_BPS:
-
-        logger.warning(
-            f"Sektor tidak dapat ditentukan: "
-            f"{article.get('title', '')}"
-        )
-
-
-        return {
-
-            "ekonomi":
-                False,
-
-            "sektor":
-                "Tidak Relevan",
-
-            "isu_ekonomi":
-                "Sektor tidak dapat ditentukan",
-
-            "ringkasan":
-                ""
-
-        }
-
-
-    # ========================================================
-    # KONVERSI KODE MENJADI NAMA SEKTOR
-    # ========================================================
-
-    sektor = SEKTOR_BPS[
-        sektor_code
-    ]
-
-
-    # ========================================================
-    # ISU EKONOMI
-    # ========================================================
-
-    isu = clean_text(
-        result.get(
-            "isu_ekonomi",
-            ""
-        )
-    )
-
-
-    if not isu:
-
-        isu = "Ekonomi Daerah"
-
-
-    # ========================================================
-    # RINGKASAN
-    # ========================================================
-
-    ringkasan = clean_text(
-        result.get(
-            "ringkasan",
-            ""
-        )
-    )
-
-
-    if len(
-        ringkasan
-    ) < 40:
-
-        logger.warning(
-            "Ringkasan terlalu pendek."
-        )
-
-
-        return {
-
-            "ekonomi":
-                False,
-
-            "sektor":
-                "Tidak Relevan",
-
-            "isu_ekonomi":
-                "Ringkasan tidak valid",
-
-            "ringkasan":
-                ""
-
-        }
-
-
-    # ========================================================
-    # CEK RINGKASAN TERLALU MIRIP JUDUL
-    # ========================================================
-
-    title = normalize_text(
-        article.get(
-            "title",
-            ""
-        )
-    )
-
-
-    summary = normalize_text(
-        ringkasan
-    )
-
-
-    similarity = SequenceMatcher(
-        None,
-        title,
-        summary
-    ).ratio()
-
-
-    if similarity >= 0.90:
-
-        logger.warning(
-            "Ringkasan terlalu mirip dengan judul."
-        )
-
-
-        return {
-
-            "ekonomi":
-                False,
-
-            "sektor":
-                "Tidak Relevan",
-
-            "isu_ekonomi":
-                "Ringkasan terlalu mirip judul",
-
-            "ringkasan":
-                ""
-
-        }
-
-
-    return {
-
-        "ekonomi":
-            True,
-
-        "sektor":
-            sektor,
-
-        "isu_ekonomi":
-            isu,
-
-        "ringkasan":
-            ringkasan
-
-    }
 
 
 # ============================================================
@@ -3245,70 +1426,8 @@ def analyze_batch_with_gemini(
         return []
 
 
-    news_blocks = []
-
-
-    for article in articles:
-
-        article_id = make_id(
-            article.get(
-                "title",
-                ""
-            ),
-            article.get(
-                "url",
-                ""
-            )
-        )
-
-
-        content = clean_text(
-            article.get(
-                "content",
-                ""
-            )
-        )
-
-
-        content = content[
-            :MAX_CONTENT_FOR_AI
-        ]
-
-
-        news_blocks.append(
-
-            f"""
-============================================================
-BERITA
-============================================================
-
-ID:
-{article_id}
-
-MEDIA:
-{article.get("source", "")}
-
-JUDUL:
-{article.get("title", "")}
-
-ISI ARTIKEL:
-{content}
-
-URL:
-{article.get("url", "")}
-"""
-
-        )
-
-
-    prompt = (
-        AI_CLASSIFICATION_PROMPT
-        +
-        "\n\n"
-        +
-        "\n".join(
-            news_blocks
-        )
+    prompt = build_gemini_prompt(
+        articles
     )
 
 
@@ -3324,22 +1443,13 @@ URL:
 
 
         text_resp = (
-            response.text
-            or
-            ""
+            response.text or ""
         ).strip()
 
 
-        if not text_resp:
-
-            raise ValueError(
-                "Gemini tidak memberikan response."
-            )
-
-
-        # ====================================================
-        # BERSIHKAN MARKDOWN
-        # ====================================================
+        # ----------------------------------------------------
+        # Bersihkan markdown
+        # ----------------------------------------------------
 
         if "```json" in text_resp:
 
@@ -3372,36 +1482,6 @@ URL:
             )
 
 
-        # ====================================================
-        # CARI JSON ARRAY
-        # ====================================================
-
-        start = text_resp.find(
-            "["
-        )
-
-        end = text_resp.rfind(
-            "]"
-        )
-
-
-        if (
-            start == -1
-            or
-            end == -1
-        ):
-
-            raise ValueError(
-                "Output Gemini bukan JSON ARRAY."
-            )
-
-
-        text_resp = text_resp[
-            start:
-            end + 1
-        ]
-
-
         results = json.loads(
             text_resp
         )
@@ -3413,14 +1493,8 @@ URL:
         ):
 
             raise ValueError(
-                "Output Gemini bukan list."
+                "Output Gemini bukan array."
             )
-
-
-        logger.info(
-            f"Gemini berhasil menganalisis "
-            f"{len(results)} berita."
-        )
 
 
         return results
@@ -3436,27 +1510,528 @@ URL:
 
 
 # ============================================================
+# ✍️ PROMPT KHUSUS MEMPERBAIKI RINGKASAN
+# ============================================================
+
+def regenerate_summary(
+    article
+):
+
+    if not client:
+
+        return ""
+
+
+    content = clean_text(
+        article.get(
+            "content",
+            ""
+        )
+    )
+
+
+    content = content[
+        :MAX_CONTENT_FOR_AI
+    ]
+
+
+    prompt = f"""
+Anda adalah editor berita untuk
+Badan Pusat Statistik Kabupaten Lamongan.
+
+Buat ringkasan berita berdasarkan ISI ARTIKEL,
+bukan berdasarkan judul.
+
+JUDUL:
+{article.get("title", "")}
+
+ISI ARTIKEL:
+{content}
+
+ATURAN:
+
+1. Ringkasan 2-3 kalimat.
+2. Maksimal 100 kata.
+3. Jelaskan kejadian utama.
+4. Jelaskan siapa yang terlibat.
+5. Masukkan angka/data penting jika tersedia.
+6. Jelaskan tujuan atau dampak jika tersedia.
+7. Jangan membuat fakta baru.
+8. Jangan menggunakan informasi dari luar artikel.
+9. Jangan mengulang judul.
+10. Jangan menggunakan kalimat "Berita ini membahas..."
+11. Langsung tuliskan fakta.
+
+HASILKAN HANYA RINGKASAN.
+"""
+
+
+    try:
+
+        response = client.models.generate_content(
+
+            model="gemini-2.5-flash",
+
+            contents=prompt
+
+        )
+
+
+        summary = clean_text(
+            response.text or ""
+        )
+
+
+        if (
+            "```" in summary
+        ):
+
+            summary = re.sub(
+                r"```.*?```",
+                "",
+                summary,
+                flags=re.S
+            ).strip()
+
+
+        return summary
+
+
+    except Exception as e:
+
+        logger.warning(
+            f"Gagal membuat ulang ringkasan: {e}"
+        )
+
+        return ""
+
+
+# ============================================================
+# 🧠 VALIDASI + PERBAIKAN SEKTOR
+# ============================================================
+
+def validate_ai_result(
+    article,
+    result
+):
+
+    ekonomi = result.get(
+        "ekonomi",
+        False
+    )
+
+
+    # --------------------------------------------------------
+    # BUKAN EKONOMI
+    # --------------------------------------------------------
+
+    if ekonomi is not True:
+
+        return {
+
+            "ekonomi": False,
+
+            "sektor": "Tidak Relevan",
+
+            "isu_ekonomi": "Tidak Relevan",
+
+            "ringkasan": ""
+
+        }
+
+
+    # --------------------------------------------------------
+    # SEKTOR
+    # --------------------------------------------------------
+
+    sector_code = normalize_sector_code(
+
+        result.get(
+            "sektor_kode",
+            ""
+        )
+
+    )
+
+
+    # Jika kode gagal, coba baca nama sektor
+
+    if not sector_code:
+
+        sector_code = normalize_sector_code(
+
+            result.get(
+                "sektor",
+                ""
+            )
+
+        )
+
+
+    # Jika masih gagal,
+    # coba identifikasi dari nama sektor / konteks
+
+    if not sector_code:
+
+        sector_code = detect_sector_from_text(
+
+            result.get(
+                "sektor",
+                ""
+            )
+
+        )
+
+
+    # --------------------------------------------------------
+    # JIKA SEKTOR MASIH KOSONG
+    # JANGAN LANGSUNG MEMBUANG BERITA
+    # --------------------------------------------------------
+
+    if not sector_code:
+
+        logger.warning(
+            "Sektor Gemini tidak valid. "
+            f"Judul: {article.get('title', '')}"
+        )
+
+        return {
+
+            "ekonomi": True,
+
+            "sektor": "Perlu Review",
+
+            "isu_ekonomi":
+                clean_text(
+                    result.get(
+                        "isu_ekonomi",
+                        "Ekonomi Daerah"
+                    )
+                ),
+
+            "ringkasan":
+                clean_text(
+                    result.get(
+                        "ringkasan",
+                        ""
+                    )
+                )
+
+        }
+
+
+    sector_name = SEKTOR_BPS[
+        sector_code
+    ]
+
+
+    # --------------------------------------------------------
+    # ISU
+    # --------------------------------------------------------
+
+    issue = clean_text(
+
+        result.get(
+            "isu_ekonomi",
+            ""
+        )
+
+    )
+
+
+    if not issue:
+
+        issue = "Ekonomi Daerah"
+
+
+    # --------------------------------------------------------
+    # RINGKASAN
+    # --------------------------------------------------------
+
+    summary = clean_text(
+
+        result.get(
+            "ringkasan",
+            ""
+        )
+
+    )
+
+
+    title = normalize_text(
+        article.get(
+            "title",
+            ""
+        )
+    )
+
+
+    summary_normalized = normalize_text(
+        summary
+    )
+
+
+    # --------------------------------------------------------
+    # CEK RINGKASAN
+    # --------------------------------------------------------
+
+    summary_too_short = (
+        len(summary) < 50
+    )
+
+
+    summary_too_similar = False
+
+
+    if (
+        title
+        and
+        summary_normalized
+    ):
+
+        similarity = SequenceMatcher(
+
+            None,
+
+            title,
+
+            summary_normalized
+
+        ).ratio()
+
+
+        # Juga cek apakah sebagian besar kata judul
+        # hanya diulang di ringkasan
+
+        title_words = set(
+            title.split()
+        )
+
+        summary_words = set(
+            summary_normalized.split()
+        )
+
+
+        if title_words:
+
+            overlap = (
+                len(
+                    title_words
+                    &
+                    summary_words
+                )
+                /
+                len(title_words)
+            )
+
+        else:
+
+            overlap = 0
+
+
+        if (
+            similarity >= 0.72
+            or
+            overlap >= 0.85
+        ):
+
+            summary_too_similar = True
+
+
+    # --------------------------------------------------------
+    # JIKA RINGKASAN BURUK
+    # BUAT ULANG
+    # --------------------------------------------------------
+
+    if (
+        summary_too_short
+        or
+        summary_too_similar
+    ):
+
+        logger.info(
+            "Ringkasan perlu diperbaiki: "
+            f"{article.get('title', '')}"
+        )
+
+
+        new_summary = regenerate_summary(
+            article
+        )
+
+
+        if new_summary:
+
+            summary = new_summary
+
+
+    # --------------------------------------------------------
+    # JIKA MASIH TERLALU PENDEK
+    # TETAP PERTAHANKAN BERITA
+    # --------------------------------------------------------
+
+    if len(summary) < 30:
+
+        logger.warning(
+            "Ringkasan Gemini masih pendek: "
+            f"{article.get('title', '')}"
+        )
+
+
+    return {
+
+        "ekonomi": True,
+
+        "sektor":
+            sector_name,
+
+        "isu_ekonomi":
+            issue,
+
+        "ringkasan":
+            summary
+
+    }
+
+
+# ============================================================
+# 🔎 CEK DATA LAMA BERDASARKAN JUDUL
+# ============================================================
+
+def filter_against_existing(
+    articles,
+    existing_df
+):
+
+    if existing_df.empty:
+
+        return articles
+
+
+    old_titles = []
+
+    old_urls = set()
+
+
+    if "Judul Berita" in existing_df.columns:
+
+        old_titles = [
+
+            normalize_text(x)
+
+            for x in
+            existing_df[
+                "Judul Berita"
+            ]
+            .dropna()
+            .astype(str)
+            .tolist()
+
+        ]
+
+
+    if "Link Berita" in existing_df.columns:
+
+        old_urls = {
+
+            normalize_url(x)
+
+            for x in
+            existing_df[
+                "Link Berita"
+            ]
+            .dropna()
+            .astype(str)
+
+        }
+
+
+    result = []
+
+
+    for article in articles:
+
+        url = normalize_url(
+            article.get(
+                "url",
+                ""
+            )
+        )
+
+
+        if url in old_urls:
+
+            continue
+
+
+        title = normalize_text(
+            article.get(
+                "title",
+                ""
+            )
+        )
+
+
+        # Judul sama persis
+
+        if title in old_titles:
+
+            continue
+
+
+        # Judul sangat mirip
+
+        duplicate = False
+
+
+        for old_title in old_titles:
+
+            similarity = SequenceMatcher(
+
+                None,
+
+                title,
+
+                old_title
+
+            ).ratio()
+
+
+            if similarity >= 0.92:
+
+                duplicate = True
+
+                break
+
+
+        if not duplicate:
+
+            result.append(
+                article
+            )
+
+
+    return result
+
+
+# ============================================================
 # 📥 FUNGSI UTAMA
 # ============================================================
 
 def fetch_and_process_news():
 
-    # ========================================================
-    # CEK GEMINI
-    # ========================================================
-
     if not client:
 
         st.error(
             "❌ Gemini AI belum aktif. "
-            "Periksa GEMINI_API_KEY di Streamlit Secrets."
+            "Periksa GEMINI_API_KEY."
         )
 
         return pd.DataFrame()
 
 
     # ========================================================
-    # LOAD DATA
+    # LOAD DATA LAMA
     # ========================================================
 
     existing_df = load_existing_data()
@@ -3477,8 +2052,7 @@ def fetch_and_process_news():
 
             normalize_url(x)
 
-            for x in
-            rejected_df[
+            for x in rejected_df[
                 "URL"
             ]
             .dropna()
@@ -3486,10 +2060,6 @@ def fetch_and_process_news():
 
         }
 
-
-    # ========================================================
-    # PROGRESS
-    # ========================================================
 
     progress = st.progress(
         0
@@ -3499,8 +2069,7 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # TAHAP 1
-    # RSS
+    # 1. AMBIL RSS
     # ========================================================
 
     status.info(
@@ -3518,43 +2087,53 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # HAPUS URL DUPLIKAT
+    # 2. URL DUPLIKAT
     # ========================================================
 
-    raw_articles = list({
+    unique_url = {}
 
-        normalize_url(
-            a.get(
-                "url",
-                ""
-            )
-        ):
-            a
+    for article in raw_articles:
 
-        for a in raw_articles
-
-        if normalize_url(
-            a.get(
+        url = normalize_url(
+            article.get(
                 "url",
                 ""
             )
         )
 
-    }.values())
+
+        if not url:
+
+            continue
 
 
-    # ========================================================
-    # BATASI KANDIDAT
-    # ========================================================
+        if url not in unique_url:
+
+            unique_url[
+                url
+            ] = article
+
+
+    raw_articles = list(
+        unique_url.values()
+    )
+
+
+    # Jangan potong terlalu awal.
+    #
+    # Sebelumnya MAX_TOTAL_CANDIDATES = 60
+    # bisa membuat salah satu media dari berita
+    # yang sama tidak ikut dibandingkan.
+    #
+    # Ambil lebih banyak kandidat.
 
     raw_articles = raw_articles[
-        :MAX_TOTAL_CANDIDATES
+        :100
     ]
 
 
     # ========================================================
-    # TAHAP 2
-    # CEK DATA LAMA
+    # 3. FILTER DATA LAMA
     # ========================================================
 
     new_articles = []
@@ -3577,8 +2156,8 @@ def fetch_and_process_news():
 
 
     status.info(
-        f"🆕 Ada {len(new_articles)} "
-        "berita baru yang perlu diperiksa."
+        f"🆕 {len(new_articles)} "
+        "berita baru ditemukan."
     )
 
 
@@ -3588,30 +2167,21 @@ def fetch_and_process_news():
             1.0
         )
 
-
         status.success(
             "✅ Tidak ada berita baru."
         )
 
-
         progress.empty()
-
 
         return existing_df
 
 
     # ========================================================
-    # TAHAP 3
-    # BACA ARTIKEL
+    # 4. BACA ISI ARTIKEL
     # ========================================================
 
-    progress.progress(
-        0.20
-    )
-
-
     status.info(
-        "📖 Membaca isi artikel secara paralel..."
+        "📖 Membaca isi berita..."
     )
 
 
@@ -3624,9 +2194,7 @@ def fetch_and_process_news():
     )
 
 
-    # ========================================================
-    # HANYA ARTIKEL DENGAN ISI CUKUP
-    # ========================================================
+    # Hanya buang jika isi benar-benar terlalu sedikit
 
     enriched_articles = [
 
@@ -3636,33 +2204,33 @@ def fetch_and_process_news():
         in enriched_articles
 
         if len(
-            article.get(
-                "content",
-                ""
+            clean_text(
+                article.get(
+                    "content",
+                    ""
+                )
             )
-        ) >= 150
+        ) >= 100
 
     ]
 
 
     status.info(
-        f"📚 Berhasil membaca "
-        f"{len(enriched_articles)} artikel."
+        f"📚 {len(enriched_articles)} "
+        "artikel berhasil dibaca."
     )
 
 
     # ========================================================
-    # TAHAP 4
-    # DUPLIKAT ANTAR-MEDIA
+    # 5. DEDUPLIKASI ANTAR MEDIA
     # ========================================================
 
     status.info(
-        "🔄 Membandingkan judul dan isi berita "
-        "antar-media..."
+        "🔄 Membandingkan berita dari berbagai media..."
     )
 
 
-    before_dedup = len(
+    before = len(
         enriched_articles
     )
 
@@ -3674,80 +2242,43 @@ def fetch_and_process_news():
     )
 
 
-    duplicate_count = (
-        before_dedup
+    removed = (
+        before
         -
         len(unique_articles)
     )
 
 
     status.info(
-        f"♻️ {duplicate_count} berita yang sama "
+        f"♻️ {removed} berita yang sama "
         "dihapus. Artikel dengan isi paling lengkap "
         "dipertahankan."
     )
 
 
     # ========================================================
-    # JIKA KOSONG
+    # 6. GEMINI
     # ========================================================
 
-    if not unique_articles:
-
-        status.warning(
-            "⚠️ Tidak ada artikel unik."
-        )
+    total = len(
+        unique_articles
+    )
 
 
-        progress.progress(
-            1.0
-        )
-
+    if total == 0:
 
         progress.empty()
 
-
         return existing_df
-
-
-    # ========================================================
-    # TAHAP 5
-    # GEMINI
-    # ========================================================
-
-    total_unique = len(
-        unique_articles
-    )
 
 
     all_ai_results = []
 
 
-    total_batches = (
-
-        (
-            total_unique
-            +
-            AI_BATCH_SIZE
-            -
-            1
-        )
-        //
+    for start in range(
+        0,
+        total,
         AI_BATCH_SIZE
-
-    )
-
-
-    for batch_number, start in enumerate(
-
-        range(
-            0,
-            total_unique,
-            AI_BATCH_SIZE
-        ),
-
-        start=1
-
     ):
 
         batch = unique_articles[
@@ -3756,49 +2287,57 @@ def fetch_and_process_news():
         ]
 
 
+        batch_number = (
+            start // AI_BATCH_SIZE
+        ) + 1
+
+
+        total_batches = (
+            total
+            +
+            AI_BATCH_SIZE
+            -
+            1
+        ) // AI_BATCH_SIZE
+
+
         status.info(
             f"🤖 Gemini menganalisis "
-            f"batch {batch_number}/"
-            f"{total_batches} "
-            f"({len(batch)} berita)..."
+            f"batch {batch_number}/{total_batches}..."
         )
 
 
-        batch_results = (
-            analyze_batch_with_gemini(
-                batch
-            )
+        results = analyze_batch_with_gemini(
+            batch
         )
 
 
         all_ai_results.extend(
-            batch_results
+            results
         )
 
 
         progress.progress(
 
-            min(
-
-                0.90,
-
-                0.40
-                +
+            0.4
+            +
+            (
+                0.45
+                *
                 (
-                    0.45
-                    *
-                    batch_number
-                    /
-                    total_batches
+                    start
+                    +
+                    len(batch)
                 )
-
+                /
+                total
             )
 
         )
 
 
     # ========================================================
-    # INDEX HASIL AI
+    # 7. INDEX HASIL GEMINI
     # ========================================================
 
     ai_by_id = {}
@@ -3822,7 +2361,7 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # HASIL AKHIR
+    # 8. HASIL AKHIR
     # ========================================================
 
     final_records = []
@@ -3834,15 +2373,9 @@ def fetch_and_process_news():
 
         article_id = make_id(
 
-            article.get(
-                "title",
-                ""
-            ),
+            article["title"],
 
-            article.get(
-                "url",
-                ""
-            )
+            article["url"]
 
         )
 
@@ -3853,17 +2386,15 @@ def fetch_and_process_news():
 
             {
 
-                "ekonomi":
-                    False,
+                "ekonomi": False,
 
-                "sektor_kode":
-                    "",
+                "sektor_kode": "",
 
-                "isu_ekonomi":
-                    "Tidak Relevan",
+                "sektor": "",
 
-                "ringkasan":
-                    ""
+                "isu_ekonomi": "",
+
+                "ringkasan": ""
 
             }
 
@@ -3871,18 +2402,19 @@ def fetch_and_process_news():
 
 
         ai_result = validate_ai_result(
+
             article,
+
             ai_raw
+
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # EKONOMI
-        # ====================================================
+        # ----------------------------------------------------
 
-        if ai_result[
-            "ekonomi"
-        ]:
+        if ai_result["ekonomi"]:
 
             final_records.append({
 
@@ -3898,7 +2430,7 @@ def fetch_and_process_news():
                 "Media":
                     article.get(
                         "source",
-                        "Berita Online"
+                        ""
                     ),
 
                 "Judul Berita":
@@ -3933,9 +2465,9 @@ def fetch_and_process_news():
             })
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # BUKAN EKONOMI
-        # ====================================================
+        # ----------------------------------------------------
 
         else:
 
@@ -3960,18 +2492,16 @@ def fetch_and_process_news():
                     ),
 
                 "URL":
-                    normalize_url(
-                        article.get(
-                            "url",
-                            ""
-                        )
+                    article.get(
+                        "url",
+                        ""
                     )
 
             })
 
 
     # ========================================================
-    # SIMPAN BERITA DITOLAK
+    # 9. SIMPAN NON-EKONOMI
     # ========================================================
 
     save_rejected_data(
@@ -3979,17 +2509,13 @@ def fetch_and_process_news():
     )
 
 
-    # ========================================================
-    # DATAFRAME BARU
-    # ========================================================
-
     new_df = pd.DataFrame(
         final_records
     )
 
 
     # ========================================================
-    # GABUNG DATA
+    # 10. GABUNG DATA LAMA
     # ========================================================
 
     if (
@@ -4018,31 +2544,24 @@ def fetch_and_process_news():
         combined_df = new_df
 
 
-    # ========================================================
-    # JIKA KOSONG
-    # ========================================================
-
     if combined_df.empty:
 
         status.warning(
-            "⚠️ Tidak ditemukan berita ekonomi "
-            "yang lolos analisis Gemini."
+            "⚠️ Belum ada berita ekonomi "
+            "yang tersimpan."
         )
-
 
         progress.progress(
             1.0
         )
 
-
         progress.empty()
-
 
         return pd.DataFrame()
 
 
     # ========================================================
-    # NORMALISASI KOLOM
+    # 11. NORMALISASI URL
     # ========================================================
 
     if "Link Berita" in combined_df.columns:
@@ -4056,23 +2575,6 @@ def fetch_and_process_news():
         )
 
 
-    if "Judul Berita" in combined_df.columns:
-
-        combined_df[
-            "Judul Berita"
-        ] = combined_df[
-            "Judul Berita"
-        ].apply(
-            clean_text
-        )
-
-
-    # ========================================================
-    # HAPUS DUPLIKAT URL
-    # ========================================================
-
-    if "Link Berita" in combined_df.columns:
-
         combined_df = (
             combined_df
             .drop_duplicates(
@@ -4085,17 +2587,17 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # HAPUS JUDUL SAMA
+    # 12. HAPUS JUDUL SAMA
     # ========================================================
 
     if "Judul Berita" in combined_df.columns:
 
         combined_df[
-            "_judul_normalized"
+            "_judul_normal"
         ] = combined_df[
             "Judul Berita"
         ].apply(
-            normalize_title_for_duplicate
+            normalize_text
         )
 
 
@@ -4103,18 +2605,13 @@ def fetch_and_process_news():
             combined_df
             .drop_duplicates(
                 subset=[
-                    "_judul_normalized"
+                    "_judul_normal"
                 ],
                 keep="first"
             )
-        )
-
-
-        combined_df = (
-            combined_df
             .drop(
                 columns=[
-                    "_judul_normalized"
+                    "_judul_normal"
                 ],
                 errors="ignore"
             )
@@ -4122,24 +2619,7 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # HAPUS BARIS DENGAN JUDUL KOSONG
-    # ========================================================
-
-    if "Judul Berita" in combined_df.columns:
-
-        combined_df = combined_df[
-            combined_df[
-                "Judul Berita"
-            ]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .ne("")
-        ]
-
-
-    # ========================================================
-    # SORTING TANGGAL
+    # 13. SORTING
     # ========================================================
 
     if "Tanggal Berita" in combined_df.columns:
@@ -4176,7 +2656,7 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # SIMPAN CSV
+    # 14. SIMPAN
     # ========================================================
 
     try:
@@ -4206,7 +2686,7 @@ def fetch_and_process_news():
 
 
     # ========================================================
-    # SELESAI
+    # 15. SELESAI
     # ========================================================
 
     progress.progress(
@@ -4217,10 +2697,9 @@ def fetch_and_process_news():
     status.success(
 
         f"✅ Selesai! "
-        f"{len(final_records)} berita baru lolos "
-        f"analisis Gemini. "
-        f"{duplicate_count} berita duplikat "
-        f"antar-media dihapus."
+        f"{len(final_records)} berita ekonomi baru "
+        f"berhasil dianalisis. "
+        f"{removed} berita duplikat dihapus."
 
     )
 
@@ -4229,8 +2708,6 @@ def fetch_and_process_news():
 
 
     return combined_df
-
-
 # ============================================================
 # 📦 DATA CONTOH
 # ============================================================
