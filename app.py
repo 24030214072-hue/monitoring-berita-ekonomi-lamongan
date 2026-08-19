@@ -21,61 +21,155 @@ from google import genai
 # 📌 CONFIGURATION & LOGO BPS
 # ============================================================
 
-# URL Logo BPS untuk Icon Tab Browser & Header Website
-BPS_LOGO_URL = "https://www.bps.go.id/images/bps_logo.png"
+from pathlib import Path
+import streamlit as st
+
+# ============================================================
+# 📁 LOKASI LOGO BPS
+# ============================================================
+
+# Mengambil lokasi folder tempat app.py berada
+BASE_DIR = Path(__file__).resolve().parent
+
+# Nama file logo yang sudah di-upload ke GitHub
+BPS_LOGO = BASE_DIR / "logo_bps.png"
+
+
+# ============================================================
+# ⚙️ KONFIGURASI STREAMLIT
+# ============================================================
 
 st.set_page_config(
     page_title="Monitoring Berita Ekonomi Lamongan - BPS",
-    page_icon=BPS_LOGO_URL,  # Favicon di tab browser
+    page_icon=str(BPS_LOGO),   # Logo sebagai icon tab browser
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Styling
+
+# ============================================================
+# 🎨 CUSTOM CSS STYLING
+# ============================================================
+
 st.markdown("""
-<meta name="google-site-verification" content="xrwK_BByxvJAfptvhoOoeWNHSvdb4vcGkTLxIz8k3ls" />
 <style>
-    main { background-color: #f8fafc; }
-    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
-    
-    /* Sembunyikan tombol download CSV bawaan Streamlit di header tabel */
-    [data-testid="stElementToolbar"] button[title="Download as CSV"],
-    [data-testid="stElementToolbar"] button[aria-label="Download as CSV"],
-    [data-testid="stElementToolbar"] button:has(svg path[d*="M19 9h-4V3H9v6H5l7 7 7-7"]) {
-        display: none !important;
-    }
 
-    .dashboard-header {
-        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 24px;
-        border-radius: 16px;
-        color: white;
-        margin-bottom: 25px;
-        box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);
-        display: flex;
-        align-items: center;
-        gap: 20px;
-    }
-    .dashboard-logo {
-        width: 75px;
-        height: auto;
-        background: white;
-        padding: 8px;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
-    .dashboard-title { font-size: 26px; font-weight: 800; margin: 0; color: #ffffff; }
-    .dashboard-subtitle { font-size: 14px; color: #e0f2fe; margin-top: 4px; }
+main {
+    background-color: #f8fafc;
+}
 
-    .section-header {
-        font-size: 18px;
-        font-weight: 700;
-        color: #1e293b;
-        margin-top: 15px;
-        margin-bottom: 15px;
-        border-left: 4px solid #2563eb;
-        padding-left: 10px;
-    }
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 2rem;
+}
+
+
+/* ============================================================
+   SEMBUNYIKAN TOMBOL DOWNLOAD CSV BAWAAN STREAMLIT
+   ============================================================ */
+
+[data-testid="stElementToolbar"] button[title="Download as CSV"],
+[data-testid="stElementToolbar"] button[aria-label="Download as CSV"],
+[data-testid="stElementToolbar"] button:has(
+    svg path[d*="M19 9h-4V3H9v6H5l7 7 7-7"]
+) {
+    display: none !important;
+}
+
+
+/* ============================================================
+   HEADER DASHBOARD
+   ============================================================ */
+
+.dashboard-header {
+    background: linear-gradient(
+        135deg,
+        #1e3a8a 0%,
+        #3b82f6 100%
+    );
+
+    padding: 24px;
+    border-radius: 16px;
+
+    color: white;
+
+    margin-bottom: 25px;
+
+    box-shadow:
+        0 4px 12px rgba(30, 58, 138, 0.15);
+
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+
+/* ============================================================
+   LOGO BPS
+   ============================================================ */
+
+.dashboard-logo {
+    width: 75px;
+    height: auto;
+
+    background: white;
+
+    padding: 8px;
+
+    border-radius: 12px;
+
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+
+/* ============================================================
+   JUDUL DASHBOARD
+   ============================================================ */
+
+.dashboard-title {
+    font-size: 26px;
+    font-weight: 800;
+
+    margin: 0;
+
+    color: #ffffff;
+}
+
+
+/* ============================================================
+   SUBJUDUL DASHBOARD
+   ============================================================ */
+
+.dashboard-subtitle {
+    font-size: 14px;
+
+    color: #e0f2fe;
+
+    margin-top: 4px;
+}
+
+
+/* ============================================================
+   JUDUL SECTION
+   ============================================================ */
+
+.section-header {
+    font-size: 18px;
+
+    font-weight: 700;
+
+    color: #1e293b;
+
+    margin-top: 15px;
+
+    margin-bottom: 15px;
+
+    border-left: 4px solid #2563eb;
+
+    padding-left: 10px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
