@@ -675,43 +675,85 @@ if keyword:
 # ============================================================
 # 📌 TAMPILAN DASHBOARD UTAMA
 # ============================================================
-# ============================================================
-# LOGO BPS
-# ============================================================
-
-def get_logo_base64():
-    with open("logo_bps.png", "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-BPS_LOGO_BASE64 = get_logo_base64()
+# Lokasi file logo
+BASE_DIR = Path(__file__).resolve().parent
+BPS_LOGO = BASE_DIR / "logo_bps.png"
 
 
 # ============================================================
-# HEADER DASHBOARD
+# 📷 MEMBACA LOGO BPS
+# ============================================================
+
+with open(BPS_LOGO, "rb") as f:
+    logo_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+
+# ============================================================
+# 🎨 CSS HEADER
+# ============================================================
+
+st.markdown("""
+<style>
+.dashboard-header {
+    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+    padding: 22px 28px;
+    border-radius: 16px;
+    color: white;
+    margin-bottom: 25px;
+    box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.dashboard-logo {
+    width: 75px;
+    height: 75px;
+    object-fit: contain;
+    background: white;
+    padding: 8px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.20);
+    flex-shrink: 0;
+}
+
+.dashboard-title {
+    font-size: 26px;
+    font-weight: 800;
+    margin: 0;
+    color: white;
+    line-height: 1.2;
+}
+
+.dashboard-subtitle {
+    font-size: 14px;
+    color: #e0f2fe;
+    margin-top: 7px;
+    line-height: 1.5;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# 🏛️ HEADER
 # ============================================================
 
 st.markdown(
-    f"""
-    <div class="dashboard-header">
-
-        <img 
-            src="data:image/png;base64,{BPS_LOGO_BASE64}" 
-            class="dashboard-logo" 
-            alt="Logo BPS"
-        >
-
-        <div>
-            <div class="dashboard-title">
-                MONITORING BERITA EKONOMI LAMONGAN
-            </div>
-
-            <div class="dashboard-subtitle">
-                Sistem pemantauan media otomatis berbasis AI untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan
-            </div>
-        </div>
-
-    </div>
-    """,
+    f'<div class="dashboard-header">'
+    f'<img src="data:image/png;base64,{logo_base64}" '
+    f'class="dashboard-logo" alt="Logo BPS">'
+    f'<div>'
+    f'<div class="dashboard-title">'
+    f'MONITORING BERITA EKONOMI LAMONGAN'
+    f'</div>'
+    f'<div class="dashboard-subtitle">'
+    f'Sistem pemantauan media otomatis berbasis AI untuk '
+    f'17 Sektor Lapangan Usaha BPS Kabupaten Lamongan'
+    f'</div>'
+    f'</div>'
+    f'</div>',
     unsafe_allow_html=True
 )
 
