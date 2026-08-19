@@ -18,17 +18,20 @@ import plotly.express as px
 from google import genai
 
 # ============================================================
-# KONFIGURASI HALAMAN & STYLING CSS
+# KONFIGURASI HALAMAN & LOGO BPS (POIN 3 & 4)
 # ============================================================
 
+# URL Logo Resmi BPS
+BPS_LOGO_URL = "https://www.bps.go.id/images/bps_logo.png"
+
 st.set_page_config(
-    page_title="Monitoring Berita Ekonomi Lamongan",
-    page_icon="📰",
+    page_title="Monitoring Berita Ekonomi Lamongan - BPS",
+    page_icon=BPS_LOGO_URL,  # POIN 3: Icon BPS di tab browser
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# CSS KHUSUS: HANYA MENGHILANGKAN TOMBOL DOWNLOAD CSV DI TOOLBAR TABEL
+# CSS KHUSUS
 st.markdown("""
 <meta name="google-site-verification" content="xrwK_BByxvJAfptvhoOoeWNHSvdb4vcGkTLxIz8k3ls" />
 <style>
@@ -49,9 +52,20 @@ st.markdown("""
         color: white;
         margin-bottom: 25px;
         box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);
+        display: flex;
+        align-items: center;
+        gap: 20px;
     }
-    .dashboard-title { font-size: 28px; font-weight: 800; margin: 0; color: #ffffff; }
-    .dashboard-subtitle { font-size: 14px; color: #e0f2fe; margin-top: 6px; }
+    .dashboard-logo {
+        width: 75px;
+        height: auto;
+        background: white;
+        padding: 8px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .dashboard-title { font-size: 26px; font-weight: 800; margin: 0; color: #ffffff; }
+    .dashboard-subtitle { font-size: 14px; color: #e0f2fe; margin-top: 4px; }
 
     .section-header {
         font-size: 18px;
@@ -142,10 +156,10 @@ KRITERIA TOLAK (ekonomi = false):
 - Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
 
 ============================================================
-ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA:
+ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA (POIN 1):
 1. DILARANG KERAS MENULIS TULISAN YANG SAMA PERSIS DENGAN JUDUL BERITA!
-2. Buat ringkasan berupa penjelasan ulasan/kronologi/fakta dalam 1-2 kalimat deskriptif (maksimal 30 kata).
-3. Mulailah kalimat ringkasan dengan kata seperti "Mengulas tentang...", "Pemerintah daerah memfasilitasi...", "Berita ini menjelaskan...", dll.
+2. Rangkum ISI BERITA menjadi 1-2 kalimat ulasan deskriptif (maksimal 30 kata).
+3. Mulailah kalimat ringkasan dengan penjelas seperti "Membahas mengenai...", "Pemerintah daerah mengupayakan...", "Laporan ini mengulas...", dll.
 ============================================================
 
 Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
@@ -172,7 +186,7 @@ Jawab HANYA JSON valid:
     "ekonomi": true,
     "sektor": "KODE - Nama Sektor",
     "isu_ekonomi": "Isu Utama Singkat",
-    "ringkasan": "Penjelasan ulasan berita yang sama sekali TIDAK BISA SAMA dengan judul berita."
+    "ringkasan": "Uraian penjelasan ringkas berita yang kata-katanya BERBEDA DENGAN JUDUL BERITA."
 }}
 
 Jika tidak relevan (ekonomi = false):
@@ -227,6 +241,27 @@ def fetch_full_article_content(url):
     except Exception as e:
         logger.error(f"Gagal scrap URL {url}: {e}")
     return ""
+
+# POIN 2: FALLBACK IDENTIFIKASI SEKTOR BPS BERDASARKAN KATA KUNCI
+def match_fallback_sector(text):
+    text_lower = text.lower()
+    if any(w in text_lower for w in ["tani", "padi", "panen", "nelayan", "ikan", "sawah", "pupuk", "ternak", "hutan"]):
+        return "A - Pertanian, Kehutanan, dan Perikanan"
+    elif any(w in text_lower for w in ["pabrik", "produksi", "olahan", "industri", "manufaktur"]):
+        return "C - Industri Pengolahan"
+    elif any(w in text_lower for w in ["pasar", "toko", "pedagang", "jual", "beli", "umkm", "eceran", "harga", "sembako"]):
+        return "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor"
+    elif any(w in text_lower for w in ["jalan", "jembatan", "pembangunan", "gedung", "proyek", "konstruksi"]):
+        return "F - Konstruksi"
+    elif any(w in text_lower for w in ["bank", "kredit", "pinjaman", "pajak", "retribusi", "keuangan", "asuransi"]):
+        return "K - Jasa Keuangan dan Asuransi"
+    elif any(w in text_lower for w in ["wisata", "hotel", "kuliner", "resto", "warung", "makan"]):
+        return "I - Penyediaan Akomodasi dan Makan Minum"
+    elif any(w in text_lower for w in ["digital", "internet", "aplikasi", "komunikasi", "medsos"]):
+        return "J - Informasi dan Komunikasi"
+    elif any(w in text_lower for w in ["jalan raya", "pelabuhan", "angkutan", "bus", "kereta"]):
+        return "H - Transportasi dan Pergudangan"
+    return "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib"
 
 def title_similarity(title1, title2):
     t1, t2 = normalize_text(title1), normalize_text(title2)
@@ -310,10 +345,10 @@ def analyze_with_gemini(article):
         content_text = fetched_content
 
     if not client:
-        summary_text = f"Artikel ini mengulas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
+        summary_text = f"Artikel ini membahas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
         return {
             "ekonomi": True, 
-            "sektor": "A - Pertanian, Kehutanan, dan Perikanan", 
+            "sektor": match_fallback_sector(title_text + " " + content_text), 
             "isu_ekonomi": "Ekonomi Daerah", 
             "ringkasan": summary_text
         }
@@ -341,19 +376,20 @@ def analyze_with_gemini(article):
         if not res.get("ekonomi", False):
             return {"ekonomi": False}
 
+        # POIN 2: IDENTIFIKASI SEKTOR BPS DENGAN FALLBACK JIKA AI KOSONG/SALAH
         sektor = res.get("sektor", "")
         if sektor not in SEKTOR_BPS:
-            sektor = "R,S,T,U - Jasa Lainnya"
+            sektor = match_fallback_sector(title_text + " " + content_text)
 
         ringkasan = str(res.get("ringkasan", "")).strip()
 
-        # 🚨 FILTER STRICT: JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH DENGAN ULASAN KATA BEDA
+        # POIN 1: FILTER STRICT - JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH ULASAN
         norm_title = normalize_text(title_text)
         norm_summary = normalize_text(ringkasan)
         
-        if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.60 or len(ringkasan) < 20:
+        if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.55 or len(ringkasan) < 20:
             isu = res.get("isu_ekonomi", "ekonomi daerah")
-            ringkasan = f"Pemberitaan ini mengulas tentang {title_text.lower()} yang mencakup isu {isu.lower()} serta dampaknya bagi masyarakat dan sektor usaha di Lamongan."
+            ringkasan = f"Pemberitaan ini mengulas tentang {title_text.lower()} yang mencakup isu {isu.lower()} serta dampaknya bagi perekonomian di Kabupaten Lamongan."
 
         return {
             "ekonomi": True,
@@ -402,7 +438,7 @@ def fetch_and_process_news():
             logger.error(f"Error media {media_name}: {e}")
         progress.progress((i + 1) / total)
 
-    status.info("🧹 Menghapus berita duplikat & mengambil isi berita lengkap...")
+    status.info("🧹 Menghapus berita duplikat & menganalisis sektor BPS...")
     filtered_articles = remove_duplicate_articles(raw_articles)
 
     final_records = []
@@ -453,6 +489,7 @@ if "data" not in st.session_state:
 # ============================================================
 
 with st.sidebar:
+    st.image(BPS_LOGO_URL, width=120)  # POIN 4: Logo BPS di Sidebar
     st.title("📰 Dashboard Control")
     if client:
         st.success("🟢 Gemini AI: Active")
@@ -504,13 +541,16 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD
+# TAMPILAN DASHBOARD (POIN 4: LOGO BPS DI HEADER WEBSITE)
 # ============================================================
 
-st.markdown("""
+st.markdown(f"""
 <div class="dashboard-header">
-    <div class="dashboard-title">📰 MONITORING BERITA EKONOMI LAMONGAN</div>
-    <div class="dashboard-subtitle">Sistem pemantauan media otomatis berbasis AI untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan</div>
+    <img src="{BPS_LOGO_URL}" class="dashboard-logo" alt="Logo BPS">
+    <div>
+        <div class="dashboard-title">MONITORING BERITA EKONOMI LAMONGAN</div>
+        <div class="dashboard-subtitle">Sistem pemantauan media otomatis berbasis AI untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -583,7 +623,7 @@ if not filtered.empty:
 
             header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
             header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            
+
             for col_num in range(1, len(exp_df.columns) + 1):
                 cell = worksheet.cell(row=1, column=col_num)
                 cell.fill = header_fill
