@@ -28,12 +28,20 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# CSS KHUSUS: HANYA MENGHILANGKAN TOMBOL DOWNLOAD CSV DI TOOLBAR TABEL
 st.markdown("""
 <meta name="google-site-verification" content="xrwK_BByxvJAfptvhoOoeWNHSvdb4vcGkTLxIz8k3ls" />
 <style>
     main { background-color: #f8fafc; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
+    /* HANYA SEMBUNYIKAN TOMBOL DOWNLOAD PANAH BAWAH DI TOOLBAR TABEL */
+    [data-testid="stElementToolbar"] button[title="Download as CSV"],
+    [data-testid="stElementToolbar"] button[aria-label="Download as CSV"],
+    [data-testid="stElementToolbar"] button:has(svg path[d*="M19 9h-4V3H9v6H5l7 7 7-7"]) {
+        display: none !important;
+    }
+
     .dashboard-header {
         background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
         padding: 24px;
@@ -591,7 +599,7 @@ if not filtered.empty:
 
         buffer.seek(0)
         st.download_button(
-            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
+            label="📊 Download Laporan Excel (.xlsx)",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
