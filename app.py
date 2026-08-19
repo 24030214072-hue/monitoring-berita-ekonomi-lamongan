@@ -616,7 +616,7 @@ if "data" not in st.session_state:
 
 with st.sidebar:
     st.image(BPS_LOGO_URL, width=120)  # Logo BPS di Sidebar
-    st.title("📰 Dashboard Control")
+    st.title("Dashboard Control")
     if client:
         st.success("🟢 Gemini AI: Active")
     else:
@@ -675,15 +675,44 @@ if keyword:
 # 📌 TAMPILAN DASHBOARD UTAMA
 # ============================================================
 
-st.markdown(f"""
-<div class="dashboard-header">
-    <img src="{BPS_LOGO_URL}" class="dashboard-logo" alt="Logo BPS">
-    <div>
-        <div class="dashboard-title">MONITORING BERITA EKONOMI LAMONGAN</div>
-        <div class="dashboard-subtitle">Sistem pemantauan media otomatis berbasis AI untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan</div>
+# ============================================================
+# 🏛️ HEADER DASHBOARD
+# ============================================================
+
+# Membaca logo BPS
+with open(BPS_LOGO, "rb") as image_file:
+    logo_base64 = base64.b64encode(
+        image_file.read()
+    ).decode("utf-8")
+
+
+st.markdown(
+    f"""
+    <div class="dashboard-header">
+
+        <img
+            src="data:image/png;base64,{logo_base64}"
+            class="dashboard-logo"
+            alt="Logo BPS"
+        >
+
+        <div>
+
+            <div class="dashboard-title">
+                MONITORING BERITA EKONOMI LAMONGAN
+            </div>
+
+            <div class="dashboard-subtitle">
+                Sistem pemantauan media otomatis berbasis AI
+                untuk 17 Sektor Lapangan Usaha BPS Kabupaten Lamongan
+            </div>
+
+        </div>
+
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 # 4 Kartu Metrik Utama
 k1, k2, k3, k4 = st.columns(4)
