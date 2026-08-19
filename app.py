@@ -144,8 +144,8 @@ KRITERIA TOLAK (ekonomi = false):
 ============================================================
 ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA:
 1. DILARANG KERAS MENULIS TULISAN YANG SAMA PERSIS DENGAN JUDUL BERITA!
-2. Rangkum ISI BERITA menjadi 1-2 kalimat deskriptif (maksimal 30 kata).
-3. Ringkasan harus menceritakan kronologi/fakta/dampak ekonomi/tindakan yang dijelaskan di dalam teks berita.
+2. Buat ringkasan berupa penjelasan ulasan/kronologi/fakta dalam 1-2 kalimat deskriptif (maksimal 30 kata).
+3. Mulailah kalimat ringkasan dengan kata seperti "Mengulas tentang...", "Pemerintah daerah memfasilitasi...", "Berita ini menjelaskan...", dll.
 ============================================================
 
 Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
@@ -172,7 +172,7 @@ Jawab HANYA JSON valid:
     "ekonomi": true,
     "sektor": "KODE - Nama Sektor",
     "isu_ekonomi": "Isu Utama Singkat",
-    "ringkasan": "Uraian ringkas berita yang sama sekali TIDAK SAMA dengan judul berita."
+    "ringkasan": "Penjelasan ulasan berita yang sama sekali TIDAK BISA SAMA dengan judul berita."
 }}
 
 Jika tidak relevan (ekonomi = false):
@@ -208,18 +208,24 @@ def normalize_text(text):
     return re.sub(r"\s+", " ", text).strip()
 
 def fetch_full_article_content(url):
-    """Fungsi khusus untuk mengambil isi paragraf berita dari URL asli"""
+    """Mengambil isi berita dari URL asli dengan penanganan redirect"""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        resp = requests.get(url, headers=headers, timeout=5)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=8, allow_redirects=True)
         soup = BeautifulSoup(resp.content, "html.parser")
+        
         paragraphs = soup.find_all("p")
-        text = " ".join([p.get_text() for p in paragraphs if len(p.get_text()) > 30])
-        cleaned = clean_text(text)
+        text_list = [p.get_text().strip() for p in paragraphs if len(p.get_text().strip()) > 30]
+        
+        full_text = " ".join(text_list)
+        cleaned = clean_text(full_text)
+        
         if len(cleaned) > 100:
-            return cleaned[:1500]
-    except Exception:
-        pass
+            return cleaned[:2000]
+    except Exception as e:
+        logger.error(f"Gagal scrap URL {url}: {e}")
     return ""
 
 def title_similarity(title1, title2):
@@ -298,13 +304,13 @@ def analyze_with_gemini(article):
     title_text = article.get("title", "")
     content_text = article.get("content", "")
 
-    if len(content_text) < 150:
-        fetched_content = fetch_full_article_content(article.get("url", ""))
-        if fetched_content:
-            content_text = fetched_content
+    # Scraping artikel asli dari web sumber
+    fetched_content = fetch_full_article_content(article.get("url", ""))
+    if len(fetched_content) > 100:
+        content_text = fetched_content
 
     if not client:
-        summary_text = content_text[:180] + "..." if len(content_text) > 50 else f"Pemberitaan mengenai {title_text.lower()} di Lamongan."
+        summary_text = f"Artikel ini mengulas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
         return {
             "ekonomi": True, 
             "sektor": "A - Pertanian, Kehutanan, dan Perikanan", 
@@ -314,7 +320,7 @@ def analyze_with_gemini(article):
 
     prompt = AI_CLASSIFICATION_PROMPT.format(
         title=title_text,
-        content=content_text,
+        content=content_text if len(content_text) > 50 else title_text,
         source=article.get("source", ""),
         date=article.get("date", ""),
         url=article.get("url", "")
@@ -341,14 +347,13 @@ def analyze_with_gemini(article):
 
         ringkasan = str(res.get("ringkasan", "")).strip()
 
-        if normalize_text(ringkasan) == normalize_text(title_text) or len(ringkasan) < 15:
-            if len(content_text) > 80:
-                ringkasan = content_text[:180] + "..."
-            else:
-                ringkasan = f"Laporan kegiatan dan informasi terkait {title_text.lower()} di Kabupaten Lamongan."
-
-        sentences = re.split(r"(?<=[.!?])\s+", ringkasan)
-        ringkasan = " ".join(sentences[:2])
+        # 🚨 FILTER STRICT: JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH DENGAN ULASAN KATA BEDA
+        norm_title = normalize_text(title_text)
+        norm_summary = normalize_text(ringkasan)
+        
+        if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.60 or len(ringkasan) < 20:
+            isu = res.get("isu_ekonomi", "ekonomi daerah")
+            ringkasan = f"Pemberitaan ini mengulas tentang {title_text.lower()} yang mencakup isu {isu.lower()} serta dampaknya bagi masyarakat dan sektor usaha di Lamongan."
 
         return {
             "ekonomi": True,
