@@ -18,14 +18,51 @@ import plotly.express as px
 from google import genai
 
 # ============================================================
-# 📁 LOKASI LOGO BPS
+# 📁 LOKASI FILE
 # ============================================================
 
-# Mengambil lokasi folder tempat app.py berada
+# Mengambil lokasi folder tempat file app.py berada
 BASE_DIR = Path(__file__).resolve().parent
 
-# Nama file logo yang sudah di-upload ke GitHub
+
+# ============================================================
+# 🏛️ LOGO BPS
+# ============================================================
+
+# Pastikan nama file logo di GitHub adalah:
+# logo_bps.png
+#
+# Jika nama file kamu berbeda, ubah bagian ini.
+
 BPS_LOGO = BASE_DIR / "logo_bps.png"
+
+
+# ============================================================
+# 🔄 KOMPATIBILITAS DENGAN CODING LAMA
+# ============================================================
+
+# Variabel ini sengaja tetap dibuat karena kemungkinan
+# masih digunakan di bagian lain coding, misalnya:
+#
+# st.image(BPS_LOGO_URL, width=120)
+#
+# Dengan begitu kamu tidak perlu mengubah semua bagian
+# coding yang sudah menggunakan BPS_LOGO_URL.
+
+BPS_LOGO_URL = str(BPS_LOGO)
+
+
+# ============================================================
+# 🔍 CEK LOGO
+# ============================================================
+
+# Jika logo tidak ditemukan, tampilkan peringatan
+# tetapi aplikasi tetap bisa berjalan.
+
+if not BPS_LOGO.exists():
+    st.warning(
+        f"⚠️ File logo BPS tidak ditemukan: {BPS_LOGO.name}"
+    )
 
 
 # ============================================================
@@ -34,8 +71,12 @@ BPS_LOGO = BASE_DIR / "logo_bps.png"
 
 st.set_page_config(
     page_title="Monitoring Berita Ekonomi Lamongan - BPS",
-    page_icon=str(BPS_LOGO),   # Logo sebagai icon tab browser
+
+    # Logo sebagai icon tab browser
+    page_icon=BPS_LOGO_URL,
+
     layout="wide",
+
     initial_sidebar_state="expanded"
 )
 
@@ -44,8 +85,13 @@ st.set_page_config(
 # 🎨 CUSTOM CSS STYLING
 # ============================================================
 
-st.markdown("""
+st.markdown(
+"""
 <style>
+
+/* ============================================================
+   BACKGROUND UTAMA
+   ============================================================ */
 
 main {
     background-color: #f8fafc;
@@ -58,7 +104,7 @@ main {
 
 
 /* ============================================================
-   SEMBUNYIKAN TOMBOL DOWNLOAD CSV BAWAAN STREAMLIT
+   SEMBUNYIKAN DOWNLOAD CSV BAWAAN STREAMLIT
    ============================================================ */
 
 [data-testid="stElementToolbar"] button[title="Download as CSV"],
@@ -82,6 +128,7 @@ main {
     );
 
     padding: 24px;
+
     border-radius: 16px;
 
     color: white;
@@ -92,17 +139,20 @@ main {
         0 4px 12px rgba(30, 58, 138, 0.15);
 
     display: flex;
+
     align-items: center;
+
     gap: 20px;
 }
 
 
 /* ============================================================
-   LOGO BPS
+   LOGO DASHBOARD
    ============================================================ */
 
 .dashboard-logo {
     width: 75px;
+
     height: auto;
 
     background: white;
@@ -122,6 +172,7 @@ main {
 
 .dashboard-title {
     font-size: 26px;
+
     font-weight: 800;
 
     margin: 0;
@@ -163,8 +214,57 @@ main {
     padding-left: 10px;
 }
 
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+
+[data-testid="stSidebar"] {
+    background-color: #f8fafc;
+}
+
+
+/* ============================================================
+   TOMBOL
+   ============================================================ */
+
+.stButton > button {
+    border-radius: 8px;
+
+    font-weight: 600;
+}
+
+
+/* ============================================================
+   SELECTBOX
+   ============================================================ */
+
+.stSelectbox > div > div {
+    border-radius: 8px;
+}
+
+
+/* ============================================================
+   DATAFRAME
+   ============================================================ */
+
+[data-testid="stDataFrame"] {
+    border-radius: 10px;
+}
+
+
+/* ============================================================
+   LINK BERITA
+   ============================================================ */
+
+a {
+    color: #2563eb;
+}
+
 </style>
-""", unsafe_allow_html=True)
+""",
+unsafe_allow_html=True
+)
 
 # ============================================================
 # 📌 SETUP FILE PATHS & GEMINI AI CLIENT
