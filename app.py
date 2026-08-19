@@ -18,24 +18,27 @@ import plotly.express as px
 from google import genai
 
 # ============================================================
-# KONFIGURASI HALAMAN & LOGO BPS
+# 📌 CONFIGURATION & LOGO BPS
 # ============================================================
 
+# URL Logo BPS untuk Icon Tab Browser & Header Website
 BPS_LOGO_URL = "https://www.bps.go.id/images/bps_logo.png"
 
 st.set_page_config(
     page_title="Monitoring Berita Ekonomi Lamongan - BPS",
-    page_icon=BPS_LOGO_URL,
+    page_icon=BPS_LOGO_URL,  # Favicon di tab browser
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Custom CSS Styling
 st.markdown("""
 <meta name="google-site-verification" content="xrwK_BByxvJAfptvhoOoeWNHSvdb4vcGkTLxIz8k3ls" />
 <style>
     main { background-color: #f8fafc; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
+    /* Sembunyikan tombol download CSV bawaan Streamlit di header tabel */
     [data-testid="stElementToolbar"] button[title="Download as CSV"],
     [data-testid="stElementToolbar"] button[aria-label="Download as CSV"],
     [data-testid="stElementToolbar"] button:has(svg path[d*="M19 9h-4V3H9v6H5l7 7 7-7"]) {
@@ -77,7 +80,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# INISIALISASI GEMINI AI & FILE PATHS
+# 📌 SETUP FILE PATHS & GEMINI AI CLIENT
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -87,6 +90,7 @@ LOG_FILE = BASE_DIR / "app.log"
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# Mengambil API Key dari Streamlit Secrets atau Environment
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 
 client = None
@@ -96,6 +100,11 @@ if GEMINI_API_KEY:
     except Exception as e:
         logger.error(f"Gagal inisialisasi Gemini Client: {e}")
 
+# ============================================================
+# 📌 MASTER DATA SEKTOR BPS & TOPIK PENCARIAN
+# ============================================================
+
+# Master 17 Sektor Lapangan Usaha BPS
 SEKTOR_BPS = [
     "A - Pertanian, Kehutanan, dan Perikanan",
     "B - Pertambangan dan Penggalian",
@@ -116,12 +125,17 @@ SEKTOR_BPS = [
     "R,S,T,U - Jasa Lainnya"
 ]
 
-# Pencarian Luas tanpa batasan media/kata kunci kaku
+# 💡 BISA DIGANTI/DITAMBAH: Kata kunci pencarian wilayah di Google News RSS
+# Jangan pakai site: domain biar pencariannya luas & disaring otomatis oleh AI Gemini
 SEARCH_TOPICS = [
     "Lamongan",
     "Kabupaten Lamongan",
     "Pemkab Lamongan"
 ]
+
+# ============================================================
+# 📌 PROMPT AI GEMINI STRICT
+# ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
 Anda adalah analis berita ekonomi Badan Pusat Statistik (BPS) Kabupaten Lamongan.
@@ -133,7 +147,7 @@ KRITERIA KETAT (ekonomi = true):
 
 KRITERIA TOLAK (ekonomi = false):
 - Berita Olahraga / Sepak Bola (Persela, Liga 2, dll) -> WAJIB FALSE.
-- Berita Kriminalitas / Kasus Polisi / Hukum -> WAJIB FALSE.
+- Berita Kriminalitas / Kasus Polisi / Hukum Murni -> WAJIB FALSE.
 - Berita Politik / Pilkada / Seremonial Murni -> WAJIB FALSE.
 
 ============================================================
@@ -185,26 +199,32 @@ Media: {source}
 URL: {url}
 """
 
+# ============================================================
+# 📌 FUNGSI HELPER & LOGIKA PENYARINGAN
+# ============================================================
+
 def clean_text(text):
+    """Pembersih tag HTML dan whitespace berlebih dari teks"""
     if not text: return ""
     text = BeautifulSoup(str(text), "html.parser").get_text(" ")
     return re.sub(r"\s+", " ", text).strip()
 
 def normalize_text(text):
+    """Normalisasi teks untuk pembandingan kemiripan kalimat"""
     if not text: return ""
     text = str(text).lower()
     text = re.sub(r"http\S+|www\S+", "", text)
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
+# 💡 BISA DIGANTI/DITAMBAH KATA KUNCI-NYA: Jaring pengaman sektor berbasis kata kunci jika AI kebingungan
 def match_fallback_sector(text):
-    """Fallback Identifikasi Sektor BPS Berbasis Kata Kunci"""
     text_lower = text.lower()
-    if any(w in text_lower for w in ["tani", "padi", "panen", "nelayan", "ikan", "sawah", "pupuk", "ternak", "hutan"]):
+    if any(w in text_lower for w in ["tani", "padi", "panen", "nelayan", "ikan", "sawah", "pupuk", "ternak", "hutan", "tambak"]):
         return "A - Pertanian, Kehutanan, dan Perikanan"
     elif any(w in text_lower for w in ["pabrik", "produksi", "olahan", "industri", "manufaktur"]):
         return "C - Industri Pengolahan"
-    elif any(w in text_lower for w in ["pasar", "toko", "pedagang", "jual", "beli", "umkm", "eceran", "harga", "sembako"]):
+    elif any(w in text_lower for w in ["pasar", "toko", "pedagang", "jual", "beli", "umkm", "eceran", "harga", "sembako", "omzet"]):
         return "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor"
     elif any(w in text_lower for w in ["jalan", "jembatan", "pembangunan", "gedung", "proyek", "konstruksi"]):
         return "F - Konstruksi"
@@ -219,14 +239,20 @@ def match_fallback_sector(text):
     return "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib"
 
 def make_id(title, link):
+    """Generator ID unik berbasis hash MD5"""
     return hashlib.md5((str(title) + str(link)).encode("utf-8")).hexdigest()
+
+# ============================================================
+# 📌 ANALISIS BERITA MENGGUNAKAN GEMINI AI
+# ============================================================
 
 def analyze_with_gemini(article):
     title_text = article.get("title", "")
     content_text = article.get("content", "")
 
+    # Jaring Pengaman 1: Jika API Key Offline / Kosong
     if not client:
-        summary_text = f"Laporan berita ini mengulas tentang {title_text.lower()} serta dampaknya terhadap perekonomian di Kabupaten Lamongan."
+        summary_text = f"Pemberitaan ini mengulas tentang {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
         return {
             "ekonomi": True, 
             "sektor": match_fallback_sector(title_text + " " + content_text), 
@@ -247,15 +273,27 @@ def analyze_with_gemini(article):
             contents=prompt,
         )
         text_resp = response.text.strip()
+        
+        # Pembersihan tag markdown backticks JSON jika AI nyeplos
         if "```json" in text_resp:
             text_resp = text_resp.split("```json")[1].split("```")[0].strip()
         elif "```" in text_resp:
             text_resp = text_resp.split("```")[1].split("```")[0].strip()
 
         res = json.loads(text_resp)
+        
+        # Jaring Pengaman 2: Jika AI Gemini bilang ekonomi = False, cek ulang pakai kata kunci ekonomi lokal
         if not res.get("ekonomi", False):
-            return {"ekonomi": False}
+            lower_title = title_text.lower()
+            if any(w in lower_title for w in ["ekonomi", "pasar", "umkm", "tani", "ikan", "harga", "panen", "dagang", "pembangunan", "pedagang"]):
+                res["ekonomi"] = True
+                res["sektor"] = match_fallback_sector(title_text)
+                res["isu_ekonomi"] = "Ekonomi Daerah"
+                res["ringkasan"] = f"Pemberitaan ini mengulas mengenai {title_text.lower()} di Kabupaten Lamongan."
+            else:
+                return {"ekonomi": False}
 
+        # Poin 2 Fix: Pastikan sektor terdaftar di 17 Sektor BPS
         sektor = res.get("sektor", "")
         if sektor not in SEKTOR_BPS:
             sektor = match_fallback_sector(title_text + " " + content_text)
@@ -264,10 +302,10 @@ def analyze_with_gemini(article):
         norm_title = normalize_text(title_text)
         norm_summary = normalize_text(ringkasan)
 
-        # FILTER STRICT POIN 1: JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH DENGAN KALIMAT DESKRIPTIF BEDA
+        # 💡 POIN 1 FIX STRICT: Jika ringkasan terdeteksi sama/mirip judul (> 50%), paksa ubah dengan kalimat ulasan baru!
         if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.50 or len(ringkasan) < 20:
             isu = res.get("isu_ekonomi", "ekonomi daerah")
-            ringkasan = f"Pemberitaan ini mengulas mengenai {title_text.lower()} yang berfokus pada isu {isu.lower()} di Kabupaten Lamongan."
+            ringkasan = f"Pemberitaan ini mengulas mengenai {title_text.lower()} yang berdampak pada isu {isu.lower()} di Kabupaten Lamongan."
 
         return {
             "ekonomi": True,
@@ -277,7 +315,20 @@ def analyze_with_gemini(article):
         }
     except Exception as e:
         logger.error(f"Gemini API Error: {e}")
+        # Jaring Pengaman 3: Jika API Gemini Error/Limit, loloskan berita yang mengandung kata kunci ekonomi dasar
+        lower_title = title_text.lower()
+        if any(w in lower_title for w in ["ekonomi", "pasar", "umkm", "tani", "ikan", "harga", "panen", "dagang"]):
+            return {
+                "ekonomi": True,
+                "sektor": match_fallback_sector(title_text),
+                "isu_ekonomi": "Ekonomi Daerah",
+                "ringkasan": f"Laporan berita ini membahas tentang {title_text.lower()} di Kabupaten Lamongan."
+            }
         return {"ekonomi": False}
+
+# ============================================================
+# 📌 PENGAMBILAN BERITA DARI GOOGLE NEWS RSS
+# ============================================================
 
 def fetch_and_process_news():
     raw_articles = []
@@ -285,11 +336,16 @@ def fetch_and_process_news():
     status = st.empty()
     total = len(SEARCH_TOPICS)
 
+    # Header browser agar tidak di-block oleh Google News
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
     for i, topic in enumerate(SEARCH_TOPICS):
-        status.info(f"🔎 Mengambil seluruh artikel dari topik '{topic}'...")
+        status.info(f"🔎 Mengambil seluruh berita topik '{topic}' dari internet...")
         try:
             rss_url = f"https://news.google.com/rss/search?q={quote(topic)}&hl=id&gl=ID&ceid=ID:id"
-            resp = requests.get(rss_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            resp = requests.get(rss_url, timeout=10, headers=headers)
             feed = feedparser.parse(resp.content)
 
             for entry in feed.entries:
@@ -300,6 +356,7 @@ def fetch_and_process_news():
                 if not title or not link or len(title) < 10:
                     continue
 
+                # Otomatis deteksi nama media dari Google News
                 source_name = "Berita Online"
                 if entry.get("source") and entry.source.get("title"):
                     source_name = entry.source.get("title")
@@ -321,9 +378,9 @@ def fetch_and_process_news():
             logger.error(f"Error topic {topic}: {e}")
         progress.progress((i + 1) / total)
 
-    status.info("🤖 AI Gemini sedang menyaring & mengelompokkan berita ekonomi Lamongan...")
+    status.info("🤖 AI Gemini sedang menyaring & mengelompokkan berita ekonomi...")
     
-    # Hapus duplikat awal berdasarkan ID
+    # Menghapus duplikat awal berdasarkan ID unik
     unique_articles = {make_id(a["title"], a["url"]): a for a in raw_articles}.values()
 
     final_records = []
@@ -350,6 +407,7 @@ def fetch_and_process_news():
     df = pd.DataFrame(final_records).drop_duplicates(subset=["ID"]).sort_values("Tanggal Berita", ascending=False)
     return df
 
+# Data contoh bawaan jika file CSV belum terbuat
 def create_sample_data():
     return pd.DataFrame([
         {"ID":"1","Tanggal Berita":"2026-08-17","Media":"ANTARAJATIM","Judul Berita":"Pertumbuhan Ekonomi Pesisir Lamongan Meningkat","Isu Ekonomi":"Ekonomi Daerah","Sektor":"A - Pertanian, Kehutanan, dan Perikanan","Ringkasan Berita":"Produktivitas sektor perikanan tangkap dan budidaya di Lamongan mencatatkan tren positif mendorong pendapatan nelayan lokal.","Link Berita":"https://jatim.antaranews.com/"},
@@ -357,7 +415,7 @@ def create_sample_data():
     ])
 
 # ============================================================
-# LOAD DATA & SIDEBAR
+# 📌 MEMUAT DATA & PENGATURAN SIDEBAR CONTROL
 # ============================================================
 
 if "data" not in st.session_state:
@@ -370,7 +428,7 @@ if "data" not in st.session_state:
         st.session_state.data = create_sample_data()
 
 with st.sidebar:
-    st.image(BPS_LOGO_URL, width=120)
+    st.image(BPS_LOGO_URL, width=120)  # Logo BPS di Sidebar
     st.title("📰 Dashboard Control")
     if client:
         st.success("🟢 Gemini AI: Active")
@@ -379,6 +437,8 @@ with st.sidebar:
 
     st.divider()
     st.subheader("⚙️ Aksi")
+    
+    # Tombol Ambil Berita Terbaru
     if st.button("🔄 Ambil Berita Terbaru", use_container_width=True):
         new_data = fetch_and_process_news()
         if not new_data.empty:
@@ -386,6 +446,7 @@ with st.sidebar:
             new_data.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
             st.success("Data berhasil diperbarui!")
 
+    # Tombol Reset Data
     if st.button("🗑️ Reset & Bersihkan Data", use_container_width=True):
         st.session_state.data = create_sample_data()
         if DATA_FILE.exists(): DATA_FILE.unlink()
@@ -396,9 +457,15 @@ with st.sidebar:
 df = st.session_state.data.copy()
 df["Tanggal Berita"] = pd.to_datetime(df["Tanggal Berita"], errors="coerce")
 
+# 💡 DIBERSIHKAN: Rentang tanggal otomatis menyesuaikan isi data ter-update
 with st.sidebar:
-    min_date = df["Tanggal Berita"].min().date() if not df.empty else datetime.now().date()
-    max_date = df["Tanggal Berita"].max().date() if not df.empty else datetime.now().date()
+    if not df.empty and "Tanggal Berita" in df.columns:
+        valid_dates = df["Tanggal Berita"].dropna()
+        min_date = valid_dates.min().date()
+        max_date = valid_dates.max().date()
+    else:
+        min_date = datetime.now().date()
+        max_date = datetime.now().date()
 
     date_range = st.date_input("📅 Periode Berita", value=(min_date, max_date))
     selected_media = st.multiselect("🌐 Media", sorted(df["Media"].dropna().unique()))
@@ -406,6 +473,7 @@ with st.sidebar:
     selected_issue = st.multiselect("📊 Isu Ekonomi", sorted(df["Isu Ekonomi"].dropna().unique()))
     keyword = st.text_input("🔎 Cari kata kunci", placeholder="Ketik kata kunci...")
 
+# Logika Filter Tampilan
 filtered = df.copy()
 if len(date_range) == 2:
     filtered = filtered[(filtered["Tanggal Berita"].dt.date >= date_range[0]) & (filtered["Tanggal Berita"].dt.date <= date_range[1])]
@@ -417,7 +485,7 @@ if keyword:
     filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
-# TAMPILAN DASHBOARD
+# 📌 TAMPILAN DASHBOARD UTAMA
 # ============================================================
 
 st.markdown(f"""
@@ -430,6 +498,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# 4 Kartu Metrik Utama
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("📰 Total Berita", f"{len(filtered):,}")
 k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,}")
@@ -438,6 +507,7 @@ k4.metric("🏭 Sektor Terpantau", f"{filtered['Sektor'].nunique():,}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# Ringkasan Visual Grafik
 if not filtered.empty:
     st.markdown('<div class="section-header">📊 Ringkasan Visual & Grafik</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
@@ -460,6 +530,7 @@ if not filtered.empty:
     fig_trend.update_layout(height=300)
     st.plotly_chart(fig_trend, use_container_width=True)
 
+# Tabel Data Utama
 st.markdown('<div class="section-header">📋 Tabel Berita Terfilter</div>', unsafe_allow_html=True)
 
 if not filtered.empty:
@@ -477,6 +548,7 @@ if not filtered.empty:
 else:
     st.warning("Tidak ada data berita yang cocok dengan filter.")
 
+# Ekspor Laporan Excel Resmi
 st.markdown('<div class="section-header">📥 Ekspor Laporan Excel</div>', unsafe_allow_html=True)
 
 if not filtered.empty:
