@@ -28,18 +28,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Khusus: Menghilangkan tombol melayang 'Download as CSV' bawaan Streamlit di atas tabel
 st.markdown("""
 <meta name="google-site-verification" content="xrwK_BByxvJAfptvhoOoeWNHSvdb4vcGkTLxIz8k3ls" />
 <style>
     main { background-color: #f8fafc; }
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     
-    /* HILANGKAN TOMBOL CSV BAWAAN STREAMLIT BIAR NGAK SALAH KLIK */
-    [data-testid="stElementToolbar"] {
-        display: none !important;
-    }
-
     .dashboard-header {
         background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
         padding: 24px;
@@ -597,7 +591,7 @@ if not filtered.empty:
 
         buffer.seek(0)
         st.download_button(
-            label="📊 Download Laporan Excel (.xlsx)",
+            label="📊 Download Laporan Excel (.xlsx) Rapi Cantik",
             data=buffer,
             file_name=f"Laporan_Berita_Ekonomi_Lamongan_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
