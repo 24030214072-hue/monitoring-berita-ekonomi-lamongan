@@ -14,6 +14,7 @@ import pandas as pd
 import feedparser
 import requests
 from bs4 import BeautifulSoup
+import base64
 import plotly.express as px
 from google import genai
 
