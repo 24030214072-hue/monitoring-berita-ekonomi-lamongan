@@ -13,7 +13,6 @@ import streamlit as st
 import pandas as pd
 import feedparser
 import requests
-import trafilatura
 from bs4 import BeautifulSoup
 import base64
 import plotly.express as px
