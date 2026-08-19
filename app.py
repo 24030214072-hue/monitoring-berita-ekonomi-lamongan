@@ -26,7 +26,7 @@ BPS_LOGO_URL = "https://www.bps.go.id/images/bps_logo.png"
 
 st.set_page_config(
     page_title="Monitoring Berita Ekonomi Lamongan - BPS",
-    page_icon=BPS_LOGO_URL,  # Icon BPS di tab browser
+    page_icon=BPS_LOGO_URL,  # POIN 3: Icon BPS di tab browser
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -139,7 +139,7 @@ MEDIA_SEARCH = {
 }
 
 # ============================================================
-# PROMPT AI STRICT (RINGKASAN HARUS BEDA DARI JUDUL)
+# PROMPT AI STRICT (PERBAIKAN POIN 1: RINGKASAN HARUS BEDA TOTAL DARI JUDUL)
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
@@ -156,10 +156,14 @@ KRITERIA TOLAK (ekonomi = false):
 - Berita Politik / Pilkada / Seremonial tanpa dampak ekonomi -> WAJIB FALSE.
 
 ============================================================
-ATURAN SANGAT STRICT UNTUK RINGKASAN BERITA:
-1. DILARANG KERAS MENULIS TULISAN YANG SAMA PERSIS DENGAN JUDUL BERITA!
-2. Rangkum ISI BERITA menjadi 1-2 kalimat ulasan deskriptif (maksimal 30 kata).
-3. Mulailah kalimat ringkasan dengan penjelas seperti "Membahas mengenai...", "Pemerintah daerah mengupayakan...", "Laporan ini mengulas...", dll.
+ATURAN SANGAT KETAT UNTUK RINGKASAN BERITA (POIN 1):
+1. DILARANG KERAS MENULIS KALIMAT YANG SAMA ATAU MIRIP DENGAN JUDUL BERITA!
+2. Buat ringkasan berupa Ulasan / Kronologi / Fakta Kegiatan dalam 1-2 kalimat deskriptif (maksimal 25 kata).
+3. Mulailah kalimat ringkasan dengan penjelas deskriptif seperti:
+   - "Membahas tentang upaya..."
+   - "Pemerintah daerah mengoptimalkan..."
+   - "Laporan ini mengulas perkembangan..."
+   - "Kegiatan ini bertujuan untuk meningkatkan..."
 ============================================================
 
 Jika ekonomi = true, pilih TEPAT SATU sektor BPS berikut:
@@ -186,7 +190,7 @@ Jawab HANYA JSON valid:
     "ekonomi": true,
     "sektor": "KODE - Nama Sektor",
     "isu_ekonomi": "Isu Utama Singkat",
-    "ringkasan": "Uraian penjelasan ringkas berita yang kata-katanya BERBEDA DENGAN JUDUL BERITA."
+    "ringkasan": "Kalimat ulasan deskriptif berita yang KATA-KATANYA BERBEDA DENGAN JUDUL."
 }}
 
 Jika tidak relevan (ekonomi = false):
@@ -332,7 +336,7 @@ def make_id(title, link):
     return hashlib.md5((str(title) + str(link)).encode("utf-8")).hexdigest()
 
 # ============================================================
-# PEMPROSESAN AI GEMINI
+# PEMPROSESAN AI GEMINI (LOGIKA PERBAIKAN POIN 1 STRICT)
 # ============================================================
 
 def analyze_with_gemini(article):
@@ -345,7 +349,7 @@ def analyze_with_gemini(article):
         content_text = fetched_content
 
     if not client:
-        summary_text = f"Artikel ini mengulas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
+        summary_text = f"Pemberitaan ini mengulas mengenai {title_text.lower()} serta dampaknya terhadap perkembangan perekonomian di Kabupaten Lamongan."
         return {
             "ekonomi": True, 
             "sektor": match_fallback_sector(title_text + " " + content_text), 
@@ -382,13 +386,14 @@ def analyze_with_gemini(article):
 
         ringkasan = str(res.get("ringkasan", "")).strip()
 
-        # 🚨 FILTER STRICT: JIKA RINGKASAN TERDETEKSI SAMA DENGAN JUDUL, PAKSA UBAH ULASAN
+        # 🚨 FILTER STRICT POIN 1: JIKA RINGKASAN TERDETEKSI SAMA/MIRIP JUDUL, PAKSA UBAH KALIMAT
         norm_title = normalize_text(title_text)
         norm_summary = normalize_text(ringkasan)
         
-        if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.55 or len(ringkasan) < 20:
+        # Cek apakah judul ada di dalam ringkasan atau tingkat kemiripan > 50%
+        if norm_title in norm_summary or norm_summary in norm_title or SequenceMatcher(None, norm_title, norm_summary).ratio() > 0.50 or len(ringkasan) < 20:
             isu = res.get("isu_ekonomi", "ekonomi daerah")
-            ringkasan = f"Pemberitaan ini mengulas tentang {title_text.lower()} yang mencakup isu {isu.lower()} serta dampaknya bagi masyarakat dan sektor usaha di Lamongan."
+            ringkasan = f"Laporan ini mengulas tentang {title_text.lower()} terkait isu {isu.lower()} serta dampaknya bagi masyarakat dan sektor usaha di Lamongan."
 
         return {
             "ekonomi": True,
