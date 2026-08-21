@@ -219,567 +219,597 @@ def clean_text(text):
     return text.strip()
 
 
-
 # ============================================================
-# KONFIGURASI PENGAMBILAN DATA OTOMATIS
+# SCRAPING GOOGLE NEWS RSS
 # ============================================================
-
-# Playwright digunakan untuk halaman yang membutuhkan JavaScript.
-# Jika Playwright/browser tidak tersedia, sistem otomatis memakai
-# fallback requests + BeautifulSoup agar dashboard tetap berjalan.
-try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-    PLAYWRIGHT_AVAILABLE = True
-except Exception:
-    PLAYWRIGHT_AVAILABLE = False
-    sync_playwright = None
-    PlaywrightTimeoutError = Exception
-
-
-# Target website dapat ditambah/dikurangi tanpa mengubah fungsi scraping.
-# Google News hanya digunakan untuk menemukan kandidat; media yang
-# ditampilkan tetap berasal dari URL/source artikel asli.
-TARGET_SOURCES = {
-    "ANTARA Jatim": ["jatim.antaranews.com"],
-    "ANTARA": ["antaranews.com"],
-    "Radar Lamongan": ["radarlamongan.jawapos.com", "radarlamongan.com"],
-    "Jawa Pos": ["jawapos.com"],
-    "KOMPAS.com": ["kompas.com"],
-    "detikJatim": ["detik.com"],
-    "KlikJatim": ["klikjatim.com"],
-    "BeritaJatim": ["beritajatim.com"],
-    "Tribun Jatim": ["surabaya.tribunnews.com", "tribunnews.com"],
-    "Jatim Times": ["jatimtimes.com"],
-    "Bangsa Online": ["bangsaonline.com"],
-    "Suara Surabaya": ["suarasurabaya.net"],
-}
 
 SEARCH_TOPICS = [
+
     "Lamongan ekonomi",
+
     "Kabupaten Lamongan ekonomi",
+
     "Pemkab Lamongan ekonomi",
+
     "Lamongan pertanian",
+
     "Lamongan perikanan",
+
     "Lamongan UMKM",
+
     "Lamongan perdagangan",
+
     "Lamongan industri",
+
     "Lamongan investasi",
+
     "Lamongan pembangunan",
+
     "Lamongan pasar",
+
     "Lamongan harga pangan",
+
     "Lamongan bisnis",
+
     "Lamongan koperasi",
+
     "Lamongan pariwisata",
+
     "Lamongan peternakan",
-    "Lamongan nelayan",
-    "Lamongan transportasi",
-    "Lamongan keuangan",
-    "Lamongan konstruksi",
+
+    "Lamongan nelayan"
 ]
 
-MAX_RESULTS_PER_QUERY = 12
-MAX_TOTAL_CANDIDATES = 180
-SCRAPE_WORKERS = 6
-ARTICLE_TIMEOUT_MS = 15000
-MAX_CONTENT = 16000
-GEMINI_MODEL = st.secrets.get("GEMINI_MODEL", "gemini-2.5-flash")
 
-# ============================================================
-# GEMINI CLIENT
-# ============================================================
+def get_google_news_rss(keyword):
 
-# gemini_client adalah satu-satunya nama client yang digunakan.
-# Ini sengaja menghilangkan error lama: NameError: client.
-gemini_client = None
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-
-if GEMINI_API_KEY:
-    try:
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception as exc:
-        logger.exception("Gemini client gagal dibuat: %s", exc)
-        gemini_client = None
-
-
-# ============================================================
-# DATABASE SQLITE - MIGRASI AMAN
-# ============================================================
-
-DB_NAME = str(BASE_DIR / "berita_lamongan.db")
-
-
-def get_connection():
-    conn = sqlite3.connect(DB_NAME, check_same_thread=False, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
-
-
-def create_database():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS berita (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tanggal TEXT,
-            media TEXT,
-            judul TEXT,
-            isu_ekonomi TEXT,
-            sektor TEXT,
-            ringkasan TEXT,
-            isi_berita TEXT,
-            link TEXT UNIQUE,
-            relevan INTEGER DEFAULT 0,
-            sumber_pencarian TEXT,
-            domain_media TEXT,
-            created_at TEXT
-        )
-    """)
-    existing = {r[1] for r in cur.execute("PRAGMA table_info(berita)").fetchall()}
-    migrations = {
-        "sumber_pencarian": "TEXT",
-        "domain_media": "TEXT",
-    }
-    for col, typ in migrations.items():
-        if col not in existing:
-            cur.execute(f"ALTER TABLE berita ADD COLUMN {col} {typ}")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_berita_tanggal ON berita(tanggal)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_berita_media ON berita(media)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_berita_sektor ON berita(sektor)")
-    conn.commit()
-    conn.close()
-
-
-create_database()
-
-
-# ============================================================
-# UTILITAS TEKS / TANGGAL
-# ============================================================
-
-def clean_text(text):
-    if not text:
-        return ""
-    text = BeautifulSoup(str(text), "html.parser").get_text(" ")
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def normalize_text(text):
-    text = clean_text(text).lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def similarity(a, b):
-    a, b = normalize_text(a), normalize_text(b)
-    if not a or not b:
-        return 0.0
-    return SequenceMatcher(None, a, b).ratio()
-
-
-def parse_date(value):
-    if not value:
-        return ""
-    dt = pd.to_datetime(clean_text(value), errors="coerce", dayfirst=True)
-    if pd.isna(dt):
-        return ""
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
-
-
-# ============================================================
-# STAGE 1 - TARGET WEBSITE IDENTIFICATION + SEARCH QUERY
-# ============================================================
-
-def get_media_from_url(url, source_title=""):
-    domain = urlparse(url or "").netloc.lower().replace("www.", "")
-    for media, domains in TARGET_SOURCES.items():
-        for d in domains:
-            if d in domain:
-                return media
-    s = clean_text(source_title).lower()
-    for media in TARGET_SOURCES:
-        if media.lower() in s:
-            return media
-    return domain if domain else "Media tidak diketahui"
-
-
-def get_google_news_rss(keyword, source_domain=None):
-    # Untuk target tertentu, query dibatasi dengan site: sehingga kandidat
-    # benar-benar berasal dari media yang diinginkan.
-    q = keyword
-    if source_domain:
-        q = f"{keyword} site:{source_domain}"
     url = (
         "https://news.google.com/rss/search?"
-        f"q={quote(q)}&hl=id&gl=ID&ceid=ID:id"
+        f"q={quote(keyword)}"
+        "&hl=id"
+        "&gl=ID"
+        "&ceid=ID:id"
     )
+
     try:
+
         response = requests.get(
-            url, timeout=12,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151 Safari/537.36"}
+            url,
+            timeout=10,
+            headers={
+                "User-Agent":
+                "Mozilla/5.0"
+            }
         )
+
         response.raise_for_status()
-        feed = feedparser.parse(response.content)
+
+        feed = feedparser.parse(
+            response.content
+        )
+
         results = []
-        for item in feed.entries[:MAX_RESULTS_PER_QUERY]:
-            source = item.get("source", {})
-            source_title = source.get("title", "") if isinstance(source, dict) else getattr(source, "title", "")
-            title = clean_text(item.get("title", ""))
-            link = item.get("link", "")
+
+        for item in feed.entries:
+
+            title = clean_text(
+                item.get("title", "")
+            )
+
+            link = item.get(
+                "link",
+                ""
+            )
+
+            published = item.get(
+                "published",
+                ""
+            )
+
+            description = clean_text(
+                item.get(
+                    "summary",
+                    ""
+                )
+            )
+
             if title and link:
+
                 results.append({
+
                     "judul_awal": title,
+
                     "link": link,
-                    "tanggal_awal": item.get("published", ""),
-                    "deskripsi_awal": clean_text(item.get("summary", "")),
-                    "source_title": clean_text(source_title),
-                    "query": q,
-                    "target_media": get_media_from_url("", source_title),
+
+                    "tanggal_awal":
+                        published,
+
+                    "deskripsi_awal":
+                        description
+
                 })
+
         return results
-    except Exception as exc:
-        logger.warning("RSS gagal %s: %s", q, exc)
+
+    except Exception:
+
         return []
 
 
-def resolve_original_url(url):
-    if not url:
-        return ""
-    domain = urlparse(url).netloc.lower()
-    if "news.google.com" not in domain:
-        return url
-    try:
-        r = requests.get(
-            url, timeout=12, allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
-        final_url = r.url
-        if final_url and "news.google.com" not in urlparse(final_url).netloc.lower():
-            return final_url
-    except Exception as exc:
-        logger.warning("Resolusi URL gagal: %s", exc)
-    return url
-
+# ============================================================
+# SCRAPE SEMUA TOPIK
+# ============================================================
 
 def scrape_news():
-    """Stage 1 + 3: target source -> query -> kandidat artikel."""
+
     all_news = []
-    jobs = []
-    # Semua target source dicari, tetapi jumlah request dibatasi agar tidak lambat.
-    for media, domains in TARGET_SOURCES.items():
-        for domain in domains[:1]:
-            for topic in SEARCH_TOPICS[:10]:
-                jobs.append((topic, domain, media))
 
     progress = st.progress(0)
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {
-            executor.submit(get_google_news_rss, topic, domain): (topic, domain, media)
-            for topic, domain, media in jobs
-        }
-        for i, future in enumerate(as_completed(futures), 1):
-            topic, domain, media = futures[future]
-            try:
-                rows = future.result()
-                for row in rows:
-                    row["target_media"] = media
-                    all_news.append(row)
-            except Exception as exc:
-                logger.warning("Search job gagal: %s", exc)
-            progress.progress(i / len(futures))
+
+    total = len(SEARCH_TOPICS)
+
+    for i, topic in enumerate(
+        SEARCH_TOPICS
+    ):
+
+        results = get_google_news_rss(
+            topic
+        )
+
+        all_news.extend(
+            results
+        )
+
+        progress.progress(
+            (i + 1) / total
+        )
+
     progress.empty()
 
-    # Dedup kandidat berdasarkan URL Google News + judul.
+    # Deduplicate berdasarkan URL
     unique = {}
+
     for item in all_news:
-        key = (normalize_text(item["judul_awal"]), item.get("source_title", ""))
-        if key not in unique:
-            unique[key] = item
-    return list(unique.values())[:MAX_TOTAL_CANDIDATES]
+
+        link = item["link"]
+
+        if link not in unique:
+
+            unique[link] = item
+
+    return list(
+        unique.values()
+    )
 
 
 # ============================================================
-# STAGE 2 - BROWSER AUTOMATION + FALLBACK
+# EKSTRAK MEDIA
 # ============================================================
 
-def _extract_from_soup(soup):
-    # JSON-LD sering berisi articleBody yang lebih lengkap.
-    jsonld = []
-    for script in soup.find_all("script", type="application/ld+json"):
-        raw = script.string or script.get_text()
-        try:
-            data = json.loads(raw)
-        except Exception:
-            continue
-        objs = data if isinstance(data, list) else [data]
-        for obj in objs:
-            if not isinstance(obj, dict):
-                continue
-            graph = obj.get("@graph")
-            if isinstance(graph, list):
-                objs.extend(x for x in graph if isinstance(x, dict))
-            body = obj.get("articleBody", "")
-            if body:
-                jsonld.append(clean_text(body))
+def get_media_from_url(url):
 
-    # Hapus elemen navigasi/script sebelum ekstraksi paragraf.
-    for el in soup.find_all(["script", "style", "noscript", "nav", "footer", "header", "aside", "form"]):
-        el.decompose()
+    try:
 
-    title = ""
-    og_title = soup.find("meta", property="og:title")
-    h1 = soup.find("h1")
-    if og_title and og_title.get("content"):
-        title = clean_text(og_title["content"])
-    elif h1:
-        title = clean_text(h1.get_text(" "))
-    elif soup.title:
-        title = clean_text(soup.title.get_text(" "))
+        domain = urlparse(
+            url
+        ).netloc.lower()
 
-    date = ""
-    for tag in [
-        soup.find("meta", property="article:published_time"),
-        soup.find("meta", attrs={"name": "date"}),
-        soup.find("meta", attrs={"name": "pubdate"}),
-        soup.find("time"),
-    ]:
-        if tag:
-            value = tag.get("content") or tag.get("datetime") or tag.get_text(" ")
-            date = parse_date(value)
-            if date:
-                break
+        domain = domain.replace(
+            "www.",
+            ""
+        )
 
-    candidates = []
-    if jsonld:
-        candidates.append(" ".join(jsonld))
-    article = soup.find("article")
-    if article:
-        candidates.append(clean_text(article.get_text(" ")))
-    main = soup.find("main")
-    if main:
-        candidates.append(clean_text(main.get_text(" ")))
-    paragraphs = []
-    seen = set()
-    for p in soup.find_all("p"):
-        text = clean_text(p.get_text(" "))
-        key = normalize_text(text)
-        if len(text) >= 35 and key not in seen:
-            seen.add(key)
-            paragraphs.append(text)
-    candidates.append(" ".join(paragraphs))
-    content = max((x for x in candidates if len(x) > 100), key=len, default="")
-    return title, date, content[:MAX_CONTENT]
+        media_mapping = {
 
+            "kompas.com":
+                "KOMPAS.com",
+
+            "detik.com":
+                "detik.com",
+
+            "jawapos.com":
+                "Jawa Pos",
+
+            "radarlamongan.jawapos.com":
+                "Radar Lamongan",
+
+            "antaranews.com":
+                "ANTARA",
+
+            "jatim.antaranews.com":
+                "ANTARA Jatim",
+
+            "klikjatim.com":
+                "KlikJatim",
+
+            "beritajatim.com":
+                "BeritaJatim",
+
+            "surabaya.tribunnews.com":
+                "Tribun Jatim"
+
+        }
+
+        for domain_key, name in media_mapping.items():
+
+            if domain_key in domain:
+
+                return name
+
+        return domain
+
+    except Exception:
+
+        return "Media tidak diketahui"
+
+
+# ============================================================
+# EKSTRAK ISI ARTIKEL
+# ============================================================
 
 def extract_article(url):
-    """Stage 2 + 4: render JS dengan Playwright; fallback ke requests."""
-    if not url:
-        return {"judul": "", "isi_berita": "", "tanggal": "", "url": ""}
 
-    original_url = url
-    if "news.google.com" in urlparse(url).netloc.lower():
-        url = resolve_original_url(url)
-
-    # Playwright untuk situs JavaScript-heavy.
-    if PLAYWRIGHT_AVAILABLE:
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page(
-                    viewport={"width": 1366, "height": 900},
-                    user_agent=HEADERS["User-Agent"] if "HEADERS" in globals() else "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151 Safari/537.36",
-                    locale="id-ID",
-                )
-                page.goto(url, wait_until="domcontentloaded", timeout=ARTICLE_TIMEOUT_MS)
-                try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
-                except Exception:
-                    pass
-                html = page.content()
-                final_url = page.url
-                browser.close()
-                soup = BeautifulSoup(html, "html.parser")
-                title, date, content = _extract_from_soup(soup)
-                if len(content) >= 150:
-                    return {"judul": title, "isi_berita": content, "tanggal": date, "url": final_url}
-        except Exception as exc:
-            logger.info("Playwright gagal, fallback requests: %s", exc)
-
-    # Fallback tetap penting untuk deployment yang belum memasang Chromium.
     try:
+
         response = requests.get(
-            url, timeout=15, allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151 Safari/537.36", "Accept-Language": "id-ID,id;q=0.9"}
+            url,
+            timeout=10,
+            headers={
+                "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
         )
+
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        title, date, content = _extract_from_soup(soup)
-        return {"judul": title, "isi_berita": content, "tanggal": date, "url": response.url or url}
-    except Exception as exc:
-        logger.warning("Requests scraping gagal %s: %s", original_url, exc)
-        return {"judul": "", "isi_berita": "", "tanggal": "", "url": url}
 
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
 
-# ============================================================
-# STAGE 4 - VALIDASI + DEDUPLIKASI + PILIH ARTIKEL TERLENGKAP
-# ============================================================
+        # Hapus elemen yang tidak diperlukan
 
-def choose_best_articles(items):
-    """Jika berita sama dari beberapa media, pilih artikel dengan isi paling lengkap."""
-    selected = []
-    for item in sorted(items, key=lambda x: len(x.get("isi_berita", "")), reverse=True):
-        duplicate = False
-        for old in selected:
-            if item.get("link") and old.get("link") == item.get("link"):
-                duplicate = True
+        for element in soup(
+            [
+                "script",
+                "style",
+                "nav",
+                "footer",
+                "header",
+                "aside",
+                "form"
+            ]
+        ):
+
+            element.decompose()
+
+        # Cari paragraf
+
+        paragraphs = []
+
+        for p in soup.find_all(
+            "p"
+        ):
+
+            text = clean_text(
+                p.get_text(" ")
+            )
+
+            if len(text) >= 40:
+
+                paragraphs.append(
+                    text
+                )
+
+        # Hilangkan duplikasi
+
+        unique_paragraphs = []
+
+        seen = set()
+
+        for p in paragraphs:
+
+            key = p.lower()
+
+            if key not in seen:
+
+                seen.add(key)
+
+                unique_paragraphs.append(
+                    p
+                )
+
+        content = " ".join(
+            unique_paragraphs
+        )
+
+        # Batasi panjang
+        content = content[:12000]
+
+        # Cari tanggal meta
+
+        date = ""
+
+        meta_candidates = [
+
+            soup.find(
+                "meta",
+                attrs={
+                    "property":
+                    "article:published_time"
+                }
+            ),
+
+            soup.find(
+                "meta",
+                attrs={
+                    "name":
+                    "date"
+                }
+            ),
+
+            soup.find(
+                "meta",
+                attrs={
+                    "name":
+                    "pubdate"
+                }
+            )
+
+        ]
+
+        for meta in meta_candidates:
+
+            if meta and meta.get(
+                "content"
+            ):
+
+                date = meta[
+                    "content"
+                ]
+
                 break
-            if similarity(item.get("judul", ""), old.get("judul", "")) >= 0.92:
-                duplicate = True
-                break
-            a = normalize_text(item.get("isi_berita", "")[:6000])
-            b = normalize_text(old.get("isi_berita", "")[:6000])
-            if len(a) > 300 and len(b) > 300 and SequenceMatcher(None, a, b).ratio() >= 0.86:
-                duplicate = True
-                break
-        if not duplicate:
-            selected.append(item)
-    return selected
 
-
-# ============================================================
-# GEMINI AI - KLASIFIKASI BERITA EKONOMI LAMONGAN
-# ============================================================
-
-SEKTOR_BPS = [
-    "A - Pertanian, Kehutanan, dan Perikanan",
-    "B - Pertambangan dan Penggalian",
-    "C - Industri Pengolahan",
-    "D - Pengadaan Listrik dan Gas",
-    "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
-    "F - Konstruksi",
-    "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
-    "H - Transportasi dan Pergudangan",
-    "I - Penyediaan Akomodasi dan Makan Minum",
-    "J - Informasi dan Komunikasi",
-    "K - Jasa Keuangan dan Asuransi",
-    "L - Real Estat",
-    "M,N - Jasa Perusahaan",
-    "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
-    "P - Jasa Pendidikan",
-    "Q - Jasa Kesehatan dan Kegiatan Sosial",
-    "R,S,T,U - Jasa Lainnya",
-]
-
-
-def validate_sector(value):
-    value = clean_text(value)
-    for sector in SEKTOR_BPS:
-        if value.lower() == sector.lower():
-            return sector
-        code = sector.split(" - ")[0].upper()
-        if value.upper().startswith(code + " ") or value.upper() == code:
-            return sector
-    return "Tidak teridentifikasi"
-
-
-def analyze_with_gemini(title, media, content):
-    """AI membaca isi artikel, bukan judul saja."""
-    if len(clean_text(content)) < 120:
         return {
-            "relevan": False,
-            "isu_ekonomi": "",
-            "sektor": "Tidak teridentifikasi",
-            "ringkasan": "",
+
+            "isi_berita":
+                content,
+
+            "tanggal":
+                date
+
         }
+
+    except Exception:
+
+        return {
+
+            "isi_berita":
+                "",
+
+            "tanggal":
+                ""
+
+        }
+
+
+# ============================================================
+# ANALISIS GEMINI AI
+# ============================================================
+
+def analyze_with_gemini(
+    title,
+    content
+):
+
+    if not content:
+
+        return {
+
+            "relevan": False,
+
+            "isu_ekonomi":
+                "Tidak dapat dianalisis",
+
+            "sektor":
+                "Tidak teridentifikasi",
+
+            "ringkasan":
+                "Isi berita tidak berhasil diambil."
+
+        }
+
+    # Jika Gemini belum dikonfigurasi
 
     if gemini_client is None:
+
         return {
-            "relevan": False,
-            "isu_ekonomi": "",
-            "sektor": "Tidak teridentifikasi",
-            "ringkasan": "",
+
+            "relevan": True,
+
+            "isu_ekonomi":
+                "Belum dianalisis AI",
+
+            "sektor":
+                "Belum dianalisis AI",
+
+            "ringkasan":
+                content[:400]
+
         }
 
-    sector_text = "\n".join(f"- {x}" for x in SEKTOR_BPS)
+    sector_text = "\n".join(
+        [
+            f"- {x}"
+            for x in SEKTOR_BPS
+        ]
+    )
+
     prompt = f"""
-Kamu adalah analis berita ekonomi BPS Kabupaten Lamongan.
+Kamu adalah analis ekonomi BPS Kabupaten Lamongan.
 
-Baca dan pahami ISI ARTIKEL secara menyeluruh. Judul hanya digunakan sebagai konteks.
-Tentukan hasil berdasarkan fakta yang terdapat di isi artikel.
+Baca ISI BERITA, jangan hanya membaca judul.
 
-MEDIA: {media}
-JUDUL: {title}
+Tentukan apakah berita tersebut berkaitan
+dengan ekonomi, pembangunan, kesejahteraan,
+usaha, perdagangan, pertanian, industri,
+jasa, investasi, atau aktivitas ekonomi
+di Kabupaten Lamongan.
 
-ISI ARTIKEL:
-{content[:10000]}
+JUDUL:
+{title}
 
-TUGAS:
-1. Tentukan apakah berita ini relevan sebagai BERITA EKONOMI KABUPATEN LAMONGAN.
-   Relevan jika membahas kegiatan ekonomi, produksi, perdagangan, usaha, UMKM,
-   pertanian, perikanan, industri, investasi, pembangunan ekonomi, pasar, harga,
-   keuangan, transportasi, pariwisata, jasa, tenaga kerja, atau aktivitas ekonomi
-   lain yang berdampak/terjadi di Kabupaten Lamongan.
-2. Jika tidak relevan, relevan=false.
-3. Jika relevan, tentukan SATU isu ekonomi yang SPESIFIK sesuai isi artikel.
-   DILARANG memakai "Ekonomi Umum" jika isi artikel dapat dijelaskan lebih spesifik.
-   Contoh isu: Harga Pangan, Produksi Padi, UMKM, Perdagangan Pasar,
-   Investasi Daerah, Perikanan, Industri Pengolahan, Pendapatan Daerah,
-   Pariwisata, Transportasi dan Logistik, Koperasi, Konstruksi, dan sebagainya.
-4. Tentukan tepat SATU sektor lapangan usaha BPS dari daftar berikut:
+ISI BERITA:
+{content[:9000]}
+
+PILIH SALAH SATU SEKTOR BERIKUT:
+
 {sector_text}
-5. Ringkasan 2-3 kalimat, maksimal 80 kata, wajib berdasarkan isi artikel.
-   Pertahankan angka, lokasi, pelaku, nilai transaksi, produksi, kebijakan,
-   atau dampak ekonomi penting jika memang ada.
-6. Jangan mengarang fakta.
 
-KELUARKAN HANYA JSON VALID:
+ATURAN:
+
+1. Gunakan isi berita sebagai dasar utama.
+2. Jangan menentukan sektor hanya berdasarkan judul.
+3. Jika berita bukan ekonomi, relevan = false.
+4. Jika berita ekonomi, relevan = true.
+5. Pilih tepat SATU sektor.
+6. Buat isu ekonomi yang spesifik.
+7. Ringkasan harus berdasarkan isi berita.
+8. Jangan hanya mengulang judul.
+9. Ringkasan maksimal 80 kata.
+10. Jangan membuat informasi yang tidak ada dalam berita.
+
+Keluarkan HANYA JSON:
+
 {{
-  "relevan": true,
-  "isu_ekonomi": "Harga Pangan",
-  "sektor": "A - Pertanian, Kehutanan, dan Perikanan",
-  "ringkasan": "..."
+    "relevan": true,
+    "isu_ekonomi": "...",
+    "sektor": "...",
+    "ringkasan": "..."
 }}
 """
 
     try:
-        from google.genai import types
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                top_k=20,
-                max_output_tokens=900,
-                response_mime_type="application/json",
-            ),
-        )
-        text = (response.text or "").strip()
-        match = re.search(r"\{.*\}", text, flags=re.S)
-        if not match:
-            raise ValueError("Respons Gemini bukan JSON")
-        result = json.loads(match.group(0))
-        relevant = bool(result.get("relevan", False))
-        issue = clean_text(result.get("isu_ekonomi", ""))
-        sector = validate_sector(result.get("sektor", ""))
-        summary = clean_text(result.get("ringkasan", ""))
 
-        if relevant and (not issue or issue.lower() in {"ekonomi umum", "ekonomi"}):
-            issue = "Isu ekonomi belum teridentifikasi secara spesifik"
-        if relevant and sector == "Tidak teridentifikasi":
-            # Berita ekonomi tidak dibuang hanya karena output nama sektor sedikit berbeda.
-            return {"relevan": True, "isu_ekonomi": issue, "sektor": sector, "ringkasan": summary or content[:500]}
+        response = gemini_client.models.generate_content(
+
+            model="gemini-2.5-flash",
+
+            contents=prompt
+
+        )
+
+        text = response.text.strip()
+
+        # Bersihkan markdown JSON
+
+        text = re.sub(
+            r"```json",
+            "",
+            text,
+            flags=re.I
+        )
+
+        text = text.replace(
+            "```",
+            ""
+        ).strip()
+
+        result = json.loads(
+            text
+        )
+
+        # Validasi sektor
+
+        sector = result.get(
+            "sektor",
+            ""
+        )
+
+        matched_sector = None
+
+        for valid_sector in SEKTOR_BPS:
+
+            if (
+                sector.lower()
+                == valid_sector.lower()
+            ):
+
+                matched_sector = (
+                    valid_sector
+                )
+
+                break
+
+        if not matched_sector:
+
+            # Coba berdasarkan kode sektor
+
+            for valid_sector in SEKTOR_BPS:
+
+                code = valid_sector.split(
+                    " - "
+                )[0]
+
+                if sector.upper().startswith(
+                    code
+                ):
+
+                    matched_sector = (
+                        valid_sector
+                    )
+
+                    break
+
+        if not matched_sector:
+
+            matched_sector = (
+                "Tidak teridentifikasi"
+            )
+
         return {
-            "relevan": relevant,
-            "isu_ekonomi": issue,
-            "sektor": sector,
-            "ringkasan": summary or content[:500],
+
+            "relevan":
+                bool(
+                    result.get(
+                        "relevan",
+                        False
+                    )
+                ),
+
+            "isu_ekonomi":
+                result.get(
+                    "isu_ekonomi",
+                    "Ekonomi Umum"
+                ),
+
+            "sektor":
+                matched_sector,
+
+            "ringkasan":
+                result.get(
+                    "ringkasan",
+                    ""
+                )
+
         }
-    except Exception as exc:
-        logger.exception("Gemini analysis error: %s", exc)
+
+    except Exception as e:
+
         return {
-            "relevan": False,
-            "isu_ekonomi": "",
-            "sektor": "Tidak teridentifikasi",
-            "ringkasan": "",
+
+            "relevan":
+                True,
+
+            "isu_ekonomi":
+                "Ekonomi Umum",
+
+            "sektor":
+                "Tidak teridentifikasi",
+
+            "ringkasan":
+                content[:500]
+
         }
 
 
@@ -788,164 +818,302 @@ KELUARKAN HANYA JSON VALID:
 # ============================================================
 
 def save_news(news):
+
     conn = get_connection()
+
+    cursor = conn.cursor()
+
     try:
-        conn.execute("""
+
+        cursor.execute("""
             INSERT OR IGNORE INTO berita
-            (tanggal, media, judul, isu_ekonomi, sektor, ringkasan,
-             isi_berita, link, relevan, sumber_pencarian, domain_media, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (
+                tanggal,
+                media,
+                judul,
+                isu_ekonomi,
+                sektor,
+                ringkasan,
+                isi_berita,
+                link,
+                relevan,
+                created_at
+            )
+
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            news.get("tanggal", ""), news.get("media", ""), news.get("judul", ""),
-            news.get("isu_ekonomi", ""), news.get("sektor", ""), news.get("ringkasan", ""),
-            news.get("isi_berita", ""), news.get("link", ""),
-            1 if news.get("relevan") else 0, news.get("sumber_pencarian", ""),
-            urlparse(news.get("link", "")).netloc.lower(), datetime.now().isoformat()
+
+            news["tanggal"],
+
+            news["media"],
+
+            news["judul"],
+
+            news["isu_ekonomi"],
+
+            news["sektor"],
+
+            news["ringkasan"],
+
+            news["isi_berita"],
+
+            news["link"],
+
+            1 if news["relevan"]
+            else 0,
+
+            datetime.now().isoformat()
+
         ))
+
         conn.commit()
-    except Exception as exc:
-        logger.exception("Save database error: %s", exc)
+
+    except Exception:
+
+        pass
+
     finally:
+
         conn.close()
 
 
+# ============================================================
+# AMBIL DATA DARI DATABASE
+# ============================================================
+
 def load_database():
+
     conn = get_connection()
-    df = pd.read_sql_query("""
-        SELECT id, tanggal, media, judul, isu_ekonomi, sektor, ringkasan, link
-        FROM berita WHERE relevan=1 ORDER BY id DESC
-    """, conn)
+
+    df = pd.read_sql_query(
+        """
+        SELECT
+            id,
+            tanggal,
+            media,
+            judul,
+            isu_ekonomi,
+            sektor,
+            ringkasan,
+            link
+        FROM berita
+        WHERE relevan = 1
+        ORDER BY id DESC
+        """,
+        conn
+    )
+
     conn.close()
-    df = df.rename(columns={
-        "tanggal": "Tanggal Berita", "media": "Media", "judul": "Judul Berita",
-        "isu_ekonomi": "Isu Ekonomi", "sektor": "Sektor",
-        "ringkasan": "Ringkasan Berita", "link": "Link Berita"
-    })
-    if "Tanggal Berita" in df.columns:
-        df["Tanggal Berita"] = pd.to_datetime(df["Tanggal Berita"], errors="coerce")
+
     return df
 
 
 # ============================================================
-# PIPELINE UTAMA
+# PROSES BERITA
 # ============================================================
 
 def process_news():
-    if gemini_client is None:
-        st.error("🔴 Gemini AI belum aktif. Tambahkan GEMINI_API_KEY pada Streamlit Secrets.")
-        return
 
-    st.info("🔎 Stage 1/4 — mengidentifikasi sumber dan mencari kandidat berita...")
+    st.info(
+        "🔎 Mengambil berita terbaru..."
+    )
+
     candidates = scrape_news()
+
     if not candidates:
-        st.warning("Tidak ditemukan kandidat berita.")
-        return
-    st.success(f"Ditemukan {len(candidates)} kandidat berita dari sumber target.")
 
-    st.info("🌐 Stage 2/4 — membuka halaman artikel dengan Playwright/fallback...")
-    scraped = []
+        st.warning(
+            "Tidak ditemukan kandidat berita."
+        )
+
+        return
+
+    st.success(
+        f"Berhasil menemukan "
+        f"{len(candidates)} kandidat berita."
+    )
+
     progress = st.progress(0)
-    with ThreadPoolExecutor(max_workers=SCRAPE_WORKERS) as executor:
-        futures = {executor.submit(extract_article, resolve_original_url(x["link"])): x for x in candidates}
-        for i, future in enumerate(as_completed(futures), 1):
-            item = futures[future]
+
+    total = len(candidates)
+
+    processed = 0
+
+    # ========================================================
+    # EKSTRAK ARTIKEL
+    # ========================================================
+
+    def worker(item):
+
+        article = extract_article(
+            item["link"]
+        )
+
+        title = item[
+            "judul_awal"
+        ]
+
+        content = article[
+            "isi_berita"
+        ]
+
+        media = get_media_from_url(
+            item["link"]
+        )
+
+        analysis = analyze_with_gemini(
+            title,
+            content
+        )
+
+        tanggal = (
+            article["tanggal"]
+            or item["tanggal_awal"]
+        )
+
+        return {
+
+            "tanggal":
+                tanggal,
+
+            "media":
+                media,
+
+            "judul":
+                title,
+
+            "isu_ekonomi":
+                analysis[
+                    "isu_ekonomi"
+                ],
+
+            "sektor":
+                analysis[
+                    "sektor"
+                ],
+
+            "ringkasan":
+                analysis[
+                    "ringkasan"
+                ],
+
+            "isi_berita":
+                content,
+
+            "link":
+                item["link"],
+
+            "relevan":
+                analysis[
+                    "relevan"
+                ]
+
+        }
+
+    # ========================================================
+    # PARALLEL PROCESSING
+    # ========================================================
+
+    with ThreadPoolExecutor(
+        max_workers=5
+    ) as executor:
+
+        futures = [
+            executor.submit(
+                worker,
+                item
+            )
+            for item in candidates
+        ]
+
+        for future in as_completed(
+            futures
+        ):
+
             try:
-                article = future.result()
-                url = article.get("url") or resolve_original_url(item["link"])
-                media = get_media_from_url(url, item.get("source_title", ""))
-                title = article.get("judul") or item["judul_awal"]
-                content = article.get("isi_berita", "") or item.get("deskripsi_awal", "")
-                if len(content) >= 120 and "news.google.com" not in urlparse(url).netloc.lower():
-                    scraped.append({
-                        "tanggal": article.get("tanggal") or parse_date(item.get("tanggal_awal", "")),
-                        "media": media,
-                        "judul": title,
-                        "isi_berita": content,
-                        "link": url,
-                        "sumber_pencarian": item.get("query", ""),
-                    })
-            except Exception as exc:
-                logger.exception("Scrape candidate error: %s", exc)
-            progress.progress(i / len(futures))
+
+                result = future.result()
+
+                # Hanya simpan berita ekonomi
+
+                if result["relevan"]:
+
+                    save_news(
+                        result
+                    )
+
+            except Exception:
+
+                pass
+
+            processed += 1
+
+            progress.progress(
+                processed / total
+            )
+
     progress.empty()
 
-    if not scraped:
-        st.warning("Kandidat ditemukan, tetapi isi artikel tidak berhasil diekstrak.")
-        return
-
-    st.info("🧹 Stage 3/4 — validasi dan memilih artikel paling lengkap jika duplikat...")
-    scraped = choose_best_articles(scraped)
-    st.success(f"{len(scraped)} artikel unik siap dianalisis Gemini.")
-
-    st.info("🤖 Stage 4/4 — Gemini membaca isi artikel dan menentukan isu + sektor BPS...")
-    progress = st.progress(0)
-    saved = 0
-    relevant_count = 0
-    # Gemini API dipanggil secara berurutan agar lebih aman terhadap rate limit.
-    for i, item in enumerate(scraped, 1):
-        try:
-            analysis = analyze_with_gemini(item["judul"], item["media"], item["isi_berita"])
-            if analysis["relevan"]:
-                relevant_count += 1
-                item.update(analysis)
-                save_news(item)
-                saved += 1
-        except Exception as exc:
-            logger.exception("AI pipeline error: %s", exc)
-        progress.progress(i / len(scraped))
-    progress.empty()
-
-    st.success(f"✅ Selesai: {saved} berita ekonomi disimpan ke SQLite.")
-    st.caption(f"Artikel unik: {len(scraped)} | Lolos klasifikasi ekonomi: {relevant_count} | Playwright: {'aktif' if PLAYWRIGHT_AVAILABLE else 'fallback requests'}")
+    st.success(
+        "✅ Proses pengambilan dan analisis berita selesai."
+    )
 
 
 # ============================================================
-# LOAD DATA + SIDEBAR CONTROL
+# 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
 # ============================================================
 
-# Tidak lagi memakai create_sample_data() atau variabel 'client' yang sebelumnya
-# menyebabkan NameError. Sumber data dashboard langsung dari SQLite.
 if "data" not in st.session_state:
-    st.session_state.data = load_database()
+    if DATA_FILE.exists():
+        try:
+            st.session_state.data = pd.read_csv(DATA_FILE)
+        except Exception:
+            st.session_state.data = create_sample_data()
+    else:
+        st.session_state.data = create_sample_data()
 
 with st.sidebar:
     if BPS_LOGO.exists():
         st.image(BPS_LOGO_URL, width=120)
-
+    
     st.title("Dashboard Control")
 
-    if gemini_client is not None:
+    if client:
         st.success("🟢 Gemini AI: Active")
     else:
         st.error("🔴 Gemini AI: Offline (Cek Secrets)")
 
     st.divider()
     st.subheader("⚙️ Aksi")
-
+    
     if st.button("🔄 Ambil Berita Terbaru", use_container_width=True):
-        process_news()
-        st.session_state.data = load_database()
-        st.rerun()
+        new_data = fetch_and_process_news()
+        if not new_data.empty:
+            st.session_state.data = new_data
+            new_data.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+            st.success("Data berhasil diperbarui!")
+            st.rerun()
 
     if st.button("🗑️ Reset & Bersihkan Data", use_container_width=True):
-        conn = get_connection()
-        conn.execute("DELETE FROM berita")
-        conn.commit()
-        conn.close()
-        st.session_state.data = load_database()
+        st.session_state.data = create_sample_data()
+        if DATA_FILE.exists(): DATA_FILE.unlink()
         st.rerun()
 
     st.divider()
     st.subheader("🔎 Filter Data")
 
-df = load_database()
-st.session_state.data = df.copy()
+df = st.session_state.data.copy()
 df["Tanggal Berita"] = pd.to_datetime(df["Tanggal Berita"], errors="coerce")
 
 with st.sidebar:
-    valid_dates = df["Tanggal Berita"].dropna() if not df.empty else pd.Series(dtype="datetime64[ns]")
-    min_date = valid_dates.min().date() if not valid_dates.empty else datetime.now().date()
-    max_date = valid_dates.max().date() if not valid_dates.empty else datetime.now().date()
+    if not df.empty and "Tanggal Berita" in df.columns:
+        valid_dates = df["Tanggal Berita"].dropna()
+        min_date = valid_dates.min().date()
+        max_date = valid_dates.max().date()
+    else:
+        min_date = datetime.now().date()
+        max_date = datetime.now().date()
+
     date_range = st.date_input("📅 Periode Berita", value=(min_date, max_date))
     selected_media = st.multiselect("🌐 Media", sorted(df["Media"].dropna().unique()))
     selected_sector = st.multiselect("🏭 Sektor Lapangan Usaha", sorted(df["Sektor"].dropna().unique()))
@@ -953,21 +1121,14 @@ with st.sidebar:
     keyword = st.text_input("🔎 Cari kata kunci", placeholder="Ketik kata kunci...")
 
 filtered = df.copy()
-if len(date_range) == 2 and not filtered.empty:
+if len(date_range) == 2:
     filtered = filtered[(filtered["Tanggal Berita"].dt.date >= date_range[0]) & (filtered["Tanggal Berita"].dt.date <= date_range[1])]
-if selected_media:
-    filtered = filtered[filtered["Media"].isin(selected_media)]
-if selected_sector:
-    filtered = filtered[filtered["Sektor"].isin(selected_sector)]
-if selected_issue:
-    filtered = filtered[filtered["Isu Ekonomi"].isin(selected_issue)]
-if keyword and not filtered.empty:
+if selected_media: filtered = filtered[filtered["Media"].isin(selected_media)]
+if selected_sector: filtered = filtered[filtered["Sektor"].isin(selected_sector)]
+if selected_issue: filtered = filtered[filtered["Isu Ekonomi"].isin(selected_issue)]
+if keyword:
     search_text = keyword.lower()
-    cols = ["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita", "Media"]
-    mask = pd.Series(False, index=filtered.index)
-    for col in cols:
-        mask |= filtered[col].fillna("").astype(str).str.lower().str.contains(search_text, regex=False)
-    filtered = filtered[mask]
+    filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
 # ============================================================
 # 📌 TAMPILAN DASHBOARD UTAMA
