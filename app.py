@@ -1122,10 +1122,24 @@ if not df.empty:
         "link": "Link Berita"
     })
 
+    # Normalisasi tanggal secara aman.
+    # utc=True mencegah kolom menjadi object jika sumber berita
+    # memiliki format/zona waktu yang berbeda-beda.
     df["Tanggal Berita"] = pd.to_datetime(
         df["Tanggal Berita"],
-        errors="coerce"
+        errors="coerce",
+        utc=True
     )
+
+    # Hilangkan timezone setelah konversi agar aman digunakan
+    # dengan .dt.date, .dt.day_name(), resample, dll.
+    try:
+        df["Tanggal Berita"] = (
+            df["Tanggal Berita"]
+            .dt.tz_convert(None)
+        )
+    except Exception:
+        pass
 else:
     df = pd.DataFrame(columns=[
         "ID",
@@ -1196,10 +1210,20 @@ with st.sidebar:
 filtered = df.copy()
 
 if len(date_range) == 2 and not filtered.empty:
+    # Pastikan tetap datetime setelah proses filter
+    filtered["Tanggal Berita"] = pd.to_datetime(
+        filtered["Tanggal Berita"],
+        errors="coerce",
+        utc=True
+    ).dt.tz_convert(None)
+
+    start_date = pd.Timestamp(date_range[0])
+    end_date = pd.Timestamp(date_range[1]) + pd.Timedelta(days=1)
+
     filtered = filtered[
-        (filtered["Tanggal Berita"].dt.date >= date_range[0])
+        (filtered["Tanggal Berita"] >= start_date)
         &
-        (filtered["Tanggal Berita"].dt.date <= date_range[1])
+        (filtered["Tanggal Berita"] < end_date)
     ]
 
 if selected_media:
@@ -1274,35 +1298,387 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ============================================================
+# KPI
+# ============================================================
+
+# Pastikan kolom tanggal selalu bertipe datetime sebelum memakai .dt
+if not filtered.empty:
+    filtered["Tanggal Berita"] = pd.to_datetime(
+        filtered["Tanggal Berita"],
+        errors="coerce",
+        utc=True
+    ).dt.tz_convert(None)
+
+    valid_filtered_dates = filtered["Tanggal Berita"].dropna()
+
+    if not valid_filtered_dates.empty:
+        today_count = int(
+            valid_filtered_dates.dt.normalize()
+            .eq(pd.Timestamp(datetime.now().date()))
+            .sum()
+        )
+    else:
+        today_count = 0
+else:
+    today_count = 0
+
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("📰 Total Berita", f"{len(filtered):,}")
-k2.metric("📅 Berita Hari Ini", f"{len(filtered[filtered['Tanggal Berita'].dt.date == datetime.now().date()]):,}")
-k3.metric("🌐 Sumber Media", f"{filtered['Media'].nunique():,}")
-k4.metric("🏭 Sektor Terpantau", f"{filtered['Sektor'].nunique():,}")
+
+k1.metric(
+    "📰 Total Berita",
+    f"{len(filtered):,}"
+)
+
+k2.metric(
+    "📅 Berita Hari Ini",
+    f"{today_count:,}"
+)
+
+k3.metric(
+    "🌐 Sumber Media",
+    f"{filtered['Media'].nunique():,}"
+)
+
+k4.metric(
+    "🏭 Sektor Terpantau",
+    f"{filtered['Sektor'].nunique():,}"
+)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+
+# ============================================================
+# DASHBOARD GRAFIK & TREND
+# ============================================================
+
 if not filtered.empty:
-    st.markdown('<div class="section-header">📊 Ringkasan Visual & Grafik</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="section-header">📊 Ringkasan Visual & Tren Berita</div>',
+        unsafe_allow_html=True
+    )
+
+    # --------------------------------------------------------
+    # SIAPKAN DATA TANGGAL
+    # --------------------------------------------------------
+
+    chart_df = filtered.copy()
+
+    chart_df["Tanggal Berita"] = pd.to_datetime(
+        chart_df["Tanggal Berita"],
+        errors="coerce",
+        utc=True
+    ).dt.tz_convert(None)
+
+    chart_df = chart_df.dropna(
+        subset=["Tanggal Berita"]
+    )
+
+    # --------------------------------------------------------
+    # BARIS 1: SEKTOR + MEDIA
+    # --------------------------------------------------------
+
     col1, col2 = st.columns(2)
+
     with col1:
-        sector_df = filtered["Sektor"].value_counts().reset_index()
-        sector_df.columns = ["Sektor", "Jumlah"]
-        fig_sector = px.bar(sector_df, x="Jumlah", y="Sektor", orientation="h", text="Jumlah", color="Jumlah", color_continuous_scale="Blues", title="Sebaran 17 Sektor Lapangan Usaha BPS")
-        fig_sector.update_layout(height=450, showlegend=False, yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig_sector, use_container_width=True)
+
+        sector_df = (
+            filtered["Sektor"]
+            .fillna("Tidak Teridentifikasi")
+            .value_counts()
+            .reset_index()
+        )
+
+        sector_df.columns = [
+            "Sektor",
+            "Jumlah"
+        ]
+
+        fig_sector = px.bar(
+            sector_df,
+            x="Jumlah",
+            y="Sektor",
+            orientation="h",
+            text="Jumlah",
+            color="Jumlah",
+            color_continuous_scale="Blues",
+            title="🏭 Sebaran Berita Berdasarkan 17 Sektor BPS"
+        )
+
+        fig_sector.update_layout(
+            height=500,
+            showlegend=False,
+            yaxis={
+                "categoryorder":
+                "total ascending"
+            },
+            margin=dict(
+                l=10,
+                r=10,
+                t=60,
+                b=10
+            )
+        )
+
+        st.plotly_chart(
+            fig_sector,
+            use_container_width=True
+        )
 
     with col2:
-        media_df = filtered["Media"].value_counts().reset_index()
-        media_df.columns = ["Media", "Jumlah"]
-        fig_media = px.pie(media_df, names="Media", values="Jumlah", hole=0.4, title="Proporsi Berita Per Media")
-        fig_media.update_layout(height=450)
-        st.plotly_chart(fig_media, use_container_width=True)
 
-    trend_df = filtered.groupby("Tanggal Berita").size().reset_index(name="Jumlah Berita")
-    fig_trend = px.area(trend_df, x="Tanggal Berita", y="Jumlah Berita", title="📈 Tren Volume Berita Ekonomi", color_discrete_sequence=["#2563eb"])
-    fig_trend.update_layout(height=300)
-    st.plotly_chart(fig_trend, use_container_width=True)
+        media_df = (
+            filtered["Media"]
+            .fillna("Media Tidak Diketahui")
+            .value_counts()
+            .reset_index()
+        )
+
+        media_df.columns = [
+            "Media",
+            "Jumlah"
+        ]
+
+        fig_media = px.pie(
+            media_df,
+            names="Media",
+            values="Jumlah",
+            hole=0.45,
+            title="🌐 Proporsi Berita Berdasarkan Media"
+        )
+
+        fig_media.update_layout(
+            height=500,
+            margin=dict(
+                l=10,
+                r=10,
+                t=60,
+                b=10
+            )
+        )
+
+        st.plotly_chart(
+            fig_media,
+            use_container_width=True
+        )
+
+
+    # --------------------------------------------------------
+    # TREND HARIAN
+    # --------------------------------------------------------
+
+    if not chart_df.empty:
+
+        daily_trend = (
+            chart_df
+            .assign(
+                Tanggal=chart_df[
+                    "Tanggal Berita"
+                ].dt.date
+            )
+            .groupby("Tanggal")
+            .size()
+            .reset_index(
+                name="Jumlah Berita"
+            )
+        )
+
+        fig_daily = px.line(
+            daily_trend,
+            x="Tanggal",
+            y="Jumlah Berita",
+            markers=True,
+            title="📈 Tren Harian Berita Ekonomi Lamongan"
+        )
+
+        fig_daily.update_layout(
+            height=350,
+            hovermode="x unified",
+            xaxis_title="Tanggal",
+            yaxis_title="Jumlah Berita"
+        )
+
+        st.plotly_chart(
+            fig_daily,
+            use_container_width=True
+        )
+
+
+    # --------------------------------------------------------
+    # TREND MINGGUAN
+    # --------------------------------------------------------
+
+    if not chart_df.empty:
+
+        weekly_trend = (
+            chart_df
+            .set_index("Tanggal Berita")
+            .resample("W-MON")
+            .size()
+            .reset_index(
+                name="Jumlah Berita"
+            )
+        )
+
+        weekly_trend["Minggu"] = (
+            weekly_trend[
+                "Tanggal Berita"
+            ].dt.strftime(
+                "%d %b %Y"
+            )
+        )
+
+        fig_weekly = px.bar(
+            weekly_trend,
+            x="Minggu",
+            y="Jumlah Berita",
+            text="Jumlah Berita",
+            title="📅 Tren Mingguan Volume Berita"
+        )
+
+        fig_weekly.update_layout(
+            height=350,
+            xaxis_title="Minggu",
+            yaxis_title="Jumlah Berita"
+        )
+
+        st.plotly_chart(
+            fig_weekly,
+            use_container_width=True
+        )
+
+
+    # --------------------------------------------------------
+    # TREND BULANAN
+    # --------------------------------------------------------
+
+    if not chart_df.empty:
+
+        monthly_trend = (
+            chart_df
+            .set_index("Tanggal Berita")
+            .resample("MS")
+            .size()
+            .reset_index(
+                name="Jumlah Berita"
+            )
+        )
+
+        monthly_trend["Bulan"] = (
+            monthly_trend[
+                "Tanggal Berita"
+            ].dt.strftime(
+                "%b %Y"
+            )
+        )
+
+        fig_monthly = px.area(
+            monthly_trend,
+            x="Bulan",
+            y="Jumlah Berita",
+            markers=True,
+            title="📆 Tren Bulanan Berita Ekonomi"
+        )
+
+        fig_monthly.update_layout(
+            height=350,
+            xaxis_title="Bulan",
+            yaxis_title="Jumlah Berita"
+        )
+
+        st.plotly_chart(
+            fig_monthly,
+            use_container_width=True
+        )
+
+
+    # --------------------------------------------------------
+    # TREND SEKTOR DARI WAKTU KE WAKTU
+    # --------------------------------------------------------
+
+    if not chart_df.empty:
+
+        sector_time = (
+            chart_df
+            .assign(
+                Tanggal=chart_df[
+                    "Tanggal Berita"
+                ].dt.date
+            )
+            .groupby(
+                ["Tanggal", "Sektor"]
+            )
+            .size()
+            .reset_index(
+                name="Jumlah Berita"
+            )
+        )
+
+        fig_sector_time = px.line(
+            sector_time,
+            x="Tanggal",
+            y="Jumlah Berita",
+            color="Sektor",
+            markers=True,
+            title="🏭 Tren Berita Berdasarkan Sektor BPS"
+        )
+
+        fig_sector_time.update_layout(
+            height=500,
+            hovermode="x unified",
+            xaxis_title="Tanggal",
+            yaxis_title="Jumlah Berita",
+            legend_title="Sektor"
+        )
+
+        st.plotly_chart(
+            fig_sector_time,
+            use_container_width=True
+        )
+
+
+    # --------------------------------------------------------
+    # TREND ISU EKONOMI
+    # --------------------------------------------------------
+
+    issue_df = (
+        filtered["Isu Ekonomi"]
+        .fillna("Ekonomi Umum")
+        .value_counts()
+        .head(15)
+        .reset_index()
+    )
+
+    issue_df.columns = [
+        "Isu Ekonomi",
+        "Jumlah"
+    ]
+
+    fig_issue = px.bar(
+        issue_df,
+        x="Jumlah",
+        y="Isu Ekonomi",
+        orientation="h",
+        text="Jumlah",
+        color="Jumlah",
+        color_continuous_scale="Blues",
+        title="💡 15 Isu Ekonomi yang Paling Banyak Diberitakan"
+    )
+
+    fig_issue.update_layout(
+        height=500,
+        yaxis={
+            "categoryorder":
+            "total ascending"
+        },
+        showlegend=False
+    )
+
+    st.plotly_chart(
+        fig_issue,
+        use_container_width=True
+    )
 
 st.markdown('<div class="section-header">📋 Tabel Berita Terfilter</div>', unsafe_allow_html=True)
 
@@ -1325,7 +1701,11 @@ st.markdown('<div class="section-header">📥 Ekspor Laporan Excel</div>', unsaf
 
 if not filtered.empty:
     exp_df = filtered.copy()
-    exp_df["Tanggal Berita"] = exp_df["Tanggal Berita"].dt.strftime("%Y-%m-%d")
+    exp_df["Tanggal Berita"] = pd.to_datetime(
+        exp_df["Tanggal Berita"],
+        errors="coerce",
+        utc=True
+    ).dt.tz_convert(None).dt.strftime("%Y-%m-%d")
     exp_df = exp_df[["Tanggal Berita", "Media", "Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita", "Link Berita"]]
 
     try:
