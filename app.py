@@ -177,8 +177,13 @@ SEKTOR_BPS = [
 
 
 # ============================================================
-# KONFIGURASI GEMINI
+# KONFIGURASI GEMINI AI
 # ============================================================
+
+try:
+    from google import genai
+except ImportError:
+    genai = None
 
 GEMINI_API_KEY = st.secrets.get(
     "GEMINI_API_KEY",
@@ -188,15 +193,12 @@ GEMINI_API_KEY = st.secrets.get(
 gemini_client = None
 
 if genai and GEMINI_API_KEY:
-
     try:
         gemini_client = genai.Client(
             api_key=GEMINI_API_KEY
         )
-
-    except Exception:
+    except Exception as e:
         gemini_client = None
-
 
 # ============================================================
 # FUNGSI CLEAN TEXT
