@@ -100,7 +100,7 @@ main { background-color: #f8fafc; }
 # DATABASE
 # ============================================================
 
-DB_NAME = "berita_lamongan.db"
+DB_NAME = str(BASE_DIR / "berita_lamongan.db")
 
 
 def get_connection():
@@ -1060,76 +1060,199 @@ def process_news():
 
 
 # ============================================================
-# 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
+# 📌 LOAD DATA & SIDEBAR CONTROL
 # ============================================================
 
+# Data utama dashboard sekarang berasal dari SQLite,
+# bukan dari CSV/sample data lama.
 if "data" not in st.session_state:
-    if DATA_FILE.exists():
-        try:
-            st.session_state.data = pd.read_csv(DATA_FILE)
-        except Exception:
-            st.session_state.data = create_sample_data()
-    else:
-        st.session_state.data = create_sample_data()
+    st.session_state.data = load_database()
 
 with st.sidebar:
     if BPS_LOGO.exists():
         st.image(BPS_LOGO_URL, width=120)
-    
+
     st.title("Dashboard Control")
 
-    if client:
+    if gemini_client is not None:
         st.success("🟢 Gemini AI: Active")
     else:
-        st.error("🔴 Gemini AI: Offline (Cek Secrets)")
+        st.warning("🟡 Gemini AI: Offline — cek GEMINI_API_KEY di Secrets")
 
     st.divider()
     st.subheader("⚙️ Aksi")
-    
-    if st.button("🔄 Ambil Berita Terbaru", use_container_width=True):
-        new_data = fetch_and_process_news()
-        if not new_data.empty:
-            st.session_state.data = new_data
-            new_data.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
-            st.success("Data berhasil diperbarui!")
-            st.rerun()
 
-    if st.button("🗑️ Reset & Bersihkan Data", use_container_width=True):
-        st.session_state.data = create_sample_data()
-        if DATA_FILE.exists(): DATA_FILE.unlink()
+    if st.button(
+        "🔄 Ambil Berita Terbaru",
+        use_container_width=True
+    ):
+        process_news()
+        st.session_state.data = load_database()
+        st.rerun()
+
+    if st.button(
+        "🗑️ Reset Database",
+        use_container_width=True
+    ):
+        conn = get_connection()
+        conn.execute("DELETE FROM berita")
+        conn.commit()
+        conn.close()
+
+        st.session_state.data = load_database()
+        st.success("Database berhasil dikosongkan.")
         st.rerun()
 
     st.divider()
     st.subheader("🔎 Filter Data")
 
-df = st.session_state.data.copy()
-df["Tanggal Berita"] = pd.to_datetime(df["Tanggal Berita"], errors="coerce")
+# Ambil data terbaru dari database
+df = load_database()
+
+# Samakan nama kolom database dengan nama kolom dashboard
+if not df.empty:
+    df = df.rename(columns={
+        "id": "ID",
+        "tanggal": "Tanggal Berita",
+        "media": "Media",
+        "judul": "Judul Berita",
+        "isu_ekonomi": "Isu Ekonomi",
+        "sektor": "Sektor",
+        "ringkasan": "Ringkasan Berita",
+        "link": "Link Berita"
+    })
+
+    df["Tanggal Berita"] = pd.to_datetime(
+        df["Tanggal Berita"],
+        errors="coerce"
+    )
+else:
+    df = pd.DataFrame(columns=[
+        "ID",
+        "Tanggal Berita",
+        "Media",
+        "Judul Berita",
+        "Isu Ekonomi",
+        "Sektor",
+        "Ringkasan Berita",
+        "Link Berita"
+    ])
 
 with st.sidebar:
-    if not df.empty and "Tanggal Berita" in df.columns:
+    if not df.empty:
         valid_dates = df["Tanggal Berita"].dropna()
-        min_date = valid_dates.min().date()
-        max_date = valid_dates.max().date()
+
+        if not valid_dates.empty:
+            min_date = valid_dates.min().date()
+            max_date = valid_dates.max().date()
+        else:
+            min_date = datetime.now().date()
+            max_date = datetime.now().date()
     else:
         min_date = datetime.now().date()
         max_date = datetime.now().date()
 
-    date_range = st.date_input("📅 Periode Berita", value=(min_date, max_date))
-    selected_media = st.multiselect("🌐 Media", sorted(df["Media"].dropna().unique()))
-    selected_sector = st.multiselect("🏭 Sektor Lapangan Usaha", sorted(df["Sektor"].dropna().unique()))
-    selected_issue = st.multiselect("📊 Isu Ekonomi", sorted(df["Isu Ekonomi"].dropna().unique()))
-    keyword = st.text_input("🔎 Cari kata kunci", placeholder="Ketik kata kunci...")
+    date_range = st.date_input(
+        "📅 Periode Berita",
+        value=(min_date, max_date)
+    )
+
+    media_values = sorted(
+        df["Media"].dropna().astype(str).unique().tolist()
+    )
+
+    sector_values = sorted(
+        df["Sektor"].dropna().astype(str).unique().tolist()
+    )
+
+    issue_values = sorted(
+        df["Isu Ekonomi"].dropna().astype(str).unique().tolist()
+    )
+
+    selected_media = st.multiselect(
+        "🌐 Media",
+        media_values
+    )
+
+    selected_sector = st.multiselect(
+        "🏭 Sektor Lapangan Usaha",
+        sector_values
+    )
+
+    selected_issue = st.multiselect(
+        "📊 Isu Ekonomi",
+        issue_values
+    )
+
+    keyword = st.text_input(
+        "🔎 Cari kata kunci",
+        placeholder="Ketik kata kunci..."
+    )
+
+# ============================================================
+# FILTER DATA
+# ============================================================
 
 filtered = df.copy()
-if len(date_range) == 2:
-    filtered = filtered[(filtered["Tanggal Berita"].dt.date >= date_range[0]) & (filtered["Tanggal Berita"].dt.date <= date_range[1])]
-if selected_media: filtered = filtered[filtered["Media"].isin(selected_media)]
-if selected_sector: filtered = filtered[filtered["Sektor"].isin(selected_sector)]
-if selected_issue: filtered = filtered[filtered["Isu Ekonomi"].isin(selected_issue)]
-if keyword:
-    search_text = keyword.lower()
-    filtered = filtered[filtered[["Judul Berita", "Isu Ekonomi", "Sektor", "Ringkasan Berita"]].fillna("").astype(str).apply(lambda row: row.str.lower().str.contains(search_text, regex=False).any(), axis=1)]
 
+if len(date_range) == 2 and not filtered.empty:
+    filtered = filtered[
+        (filtered["Tanggal Berita"].dt.date >= date_range[0])
+        &
+        (filtered["Tanggal Berita"].dt.date <= date_range[1])
+    ]
+
+if selected_media:
+    filtered = filtered[
+        filtered["Media"].isin(selected_media)
+    ]
+
+if selected_sector:
+    filtered = filtered[
+        filtered["Sektor"].isin(selected_sector)
+    ]
+
+if selected_issue:
+    filtered = filtered[
+        filtered["Isu Ekonomi"].isin(selected_issue)
+    ]
+
+if keyword:
+    search_text = keyword.lower().strip()
+
+    if search_text:
+        search_columns = [
+            "Judul Berita",
+            "Isu Ekonomi",
+            "Sektor",
+            "Ringkasan Berita"
+        ]
+
+        mask = pd.Series(
+            False,
+            index=filtered.index
+        )
+
+        for column in search_columns:
+            mask = (
+                mask
+                |
+                filtered[column]
+                .fillna("")
+                .astype(str)
+                .str.lower()
+                .str.contains(
+                    search_text,
+                    regex=False,
+                    na=False
+                )
+            )
+
+        filtered = filtered[mask]
+
+# ============================================================
+# 📌 TAMPILAN DASHBOARD UTAMA
+# ============================================================
 # ============================================================
 # 📌 TAMPILAN DASHBOARD UTAMA
 # ============================================================
