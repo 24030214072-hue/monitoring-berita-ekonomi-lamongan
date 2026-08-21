@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import json
 import hashlib
 import logging
@@ -12,11 +13,20 @@ import base64
 
 import streamlit as st
 import pandas as pd
+import sqlite3
 import feedparser
 import requests
 from bs4 import BeautifulSoup
 import plotly.express as px
 from google import genai
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+# Gemini
+try:
+    from google import genai
+except ImportError:
+    genai = None
 
 # ============================================================
 # 📌 SETUP FILE PATHS & LOGO BPS
@@ -93,270 +103,1402 @@ main { background-color: #f8fafc; }
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 🤖 GEMINI AI CLIENT
+# DATABASE
 # ============================================================
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if not GEMINI_API_KEY:
+DB_NAME = "berita_lamongan.db"
+
+
+def get_connection():
+
+    conn = sqlite3.connect(
+        DB_NAME,
+        check_same_thread=False
+    )
+
+    return conn
+
+
+def create_database():
+
+    conn = get_connection()
+
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS berita (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            tanggal TEXT,
+            media TEXT,
+            judul TEXT,
+            isu_ekonomi TEXT,
+            sektor TEXT,
+            ringkasan TEXT,
+            isi_berita TEXT,
+            link TEXT UNIQUE,
+
+            relevan INTEGER DEFAULT 0,
+
+            created_at TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+create_database()
+
+
+# ============================================================
+# MASTER SEKTOR BPS
+# ============================================================
+
+SEKTOR_BPS = [
+    "A - Pertanian, Kehutanan, dan Perikanan",
+    "B - Pertambangan dan Penggalian",
+    "C - Industri Pengolahan",
+    "D - Pengadaan Listrik dan Gas",
+    "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
+    "F - Konstruksi",
+    "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
+    "H - Transportasi dan Pergudangan",
+    "I - Penyediaan Akomodasi dan Makan Minum",
+    "J - Informasi dan Komunikasi",
+    "K - Jasa Keuangan dan Asuransi",
+    "L - Real Estat",
+    "M,N - Jasa Perusahaan",
+    "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
+    "P - Jasa Pendidikan",
+    "Q - Jasa Kesehatan dan Kegiatan Sosial",
+    "R,S,T,U - Jasa Lainnya"
+]
+
+
+# ============================================================
+# KONFIGURASI GEMINI
+# ============================================================
+
+GEMINI_API_KEY = st.secrets.get(
+    "GEMINI_API_KEY",
+    ""
+)
+
+gemini_client = None
+
+if genai and GEMINI_API_KEY:
+
     try:
-        GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+        gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY
+        )
+
     except Exception:
-        GEMINI_API_KEY = ""
+        gemini_client = None
 
-client = None
-if GEMINI_API_KEY:
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception as e:
-        logger.error(f"Gagal inisialisasi Gemini Client: {e}")
 
 # ============================================================
-# 📊 MASTER 17 SEKTOR BPS
-# ============================================================
-
-SEKTOR_BPS = {
-    "A": "A - Pertanian, Kehutanan, dan Perikanan",
-    "B": "B - Pertambangan dan Penggalian",
-    "C": "C - Industri Pengolahan",
-    "D": "D - Pengadaan Listrik dan Gas",
-    "E": "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
-    "F": "F - Konstruksi",
-    "G": "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
-    "H": "H - Transportasi dan Pergudangan",
-    "I": "I - Penyediaan Akomodasi dan Makan Minum",
-    "J": "J - Informasi dan Komunikasi",
-    "K": "K - Jasa Keuangan dan Asuransi",
-    "L": "L - Real Estat",
-    "MN": "M,N - Jasa Perusahaan",
-    "O": "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
-    "P": "P - Jasa Pendidikan",
-    "Q": "Q - Jasa Kesehatan dan Kegiatan Sosial",
-    "RSTU": "R,S,T,U - Jasa Lainnya"
-}
-
-# ============================================================
-# 🛠️ UTILITY HELPER
+# FUNGSI CLEAN TEXT
 # ============================================================
 
 def clean_text(text):
-    if not text: return ""
-    text = BeautifulSoup(str(text), "html.parser").get_text(" ")
-    return re.sub(r"\s+", " ", text).strip()
 
-def normalize_text(text):
-    if not text: return ""
-    text = str(text).lower()
-    text = re.sub(r"http\S+|www\S+", " ", text)
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
 
-def normalize_url(url):
-    if not url: return ""
-    url = str(url).strip()
-    parsed = urlparse(url)
-    clean = parsed.scheme + "://" + parsed.netloc + parsed.path if parsed.scheme else url
-    return clean.rstrip("/")
+    soup = BeautifulSoup(
+        str(text),
+        "html.parser"
+    )
 
-def make_id(title, url):
-    return hashlib.md5((normalize_text(title) + "|" + normalize_url(url)).encode("utf-8")).hexdigest()[:16]
+    text = soup.get_text(" ")
 
-def fallback_sector(text):
-    text_lower = text.lower()
-    if any(w in text_lower for w in ["tani", "padi", "panen", "nelayan", "ikan", "sawah", "pupuk", "tambak"]):
-        return "A - Pertanian, Kehutanan, dan Perikanan"
-    elif any(w in text_lower for w in ["pabrik", "produksi", "olahan", "industri"]):
-        return "C - Industri Pengolahan"
-    elif any(w in text_lower for w in ["pasar", "toko", "pedagang", "jual", "umkm", "eceran", "harga"]):
-        return "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor"
-    elif any(w in text_lower for w in ["jalan", "jembatan", "pembangunan", "konstruksi"]):
-        return "F - Konstruksi"
-    elif any(w in text_lower for w in ["bank", "kredit", "keuangan"]):
-        return "K - Jasa Keuangan dan Asuransi"
-    elif any(w in text_lower for w in ["wisata", "hotel", "kuliner", "resto"]):
-        return "I - Penyediaan Akomodasi dan Makan Minum"
-    return "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib"
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
+
 
 # ============================================================
-# 🤖 GEMINI AI ANALYZER
+# SCRAPING GOOGLE NEWS RSS
 # ============================================================
 
-def analyze_with_gemini(article):
-    title_text = article.get("title", "")
-    content_text = article.get("content", "")
-    lower_title = title_text.lower()
+SEARCH_TOPICS = [
 
-    if not client:
-        return {
-            "ekonomi": True, 
-            "sektor": fallback_sector(title_text + " " + content_text), 
-            "isu_ekonomi": "Ekonomi Daerah", 
-            "ringkasan": f"Laporan berita ini mengulas tentang {title_text.lower()} di Kabupaten Lamongan."
+    "Lamongan ekonomi",
+
+    "Kabupaten Lamongan ekonomi",
+
+    "Pemkab Lamongan ekonomi",
+
+    "Lamongan pertanian",
+
+    "Lamongan perikanan",
+
+    "Lamongan UMKM",
+
+    "Lamongan perdagangan",
+
+    "Lamongan industri",
+
+    "Lamongan investasi",
+
+    "Lamongan pembangunan",
+
+    "Lamongan pasar",
+
+    "Lamongan harga pangan",
+
+    "Lamongan bisnis",
+
+    "Lamongan koperasi",
+
+    "Lamongan pariwisata",
+
+    "Lamongan peternakan",
+
+    "Lamongan nelayan"
+]
+
+
+def get_google_news_rss(keyword):
+
+    url = (
+        "https://news.google.com/rss/search?"
+        f"q={quote(keyword)}"
+        "&hl=id"
+        "&gl=ID"
+        "&ceid=ID:id"
+    )
+
+    try:
+
+        response = requests.get(
+            url,
+            timeout=10,
+            headers={
+                "User-Agent":
+                "Mozilla/5.0"
+            }
+        )
+
+        response.raise_for_status()
+
+        feed = feedparser.parse(
+            response.content
+        )
+
+        results = []
+
+        for item in feed.entries:
+
+            title = clean_text(
+                item.get("title", "")
+            )
+
+            link = item.get(
+                "link",
+                ""
+            )
+
+            published = item.get(
+                "published",
+                ""
+            )
+
+            description = clean_text(
+                item.get(
+                    "summary",
+                    ""
+                )
+            )
+
+            if title and link:
+
+                results.append({
+
+                    "judul_awal": title,
+
+                    "link": link,
+
+                    "tanggal_awal":
+                        published,
+
+                    "deskripsi_awal":
+                        description
+
+                })
+
+        return results
+
+    except Exception:
+
+        return []
+
+
+# ============================================================
+# SCRAPE SEMUA TOPIK
+# ============================================================
+
+def scrape_news():
+
+    all_news = []
+
+    progress = st.progress(0)
+
+    total = len(SEARCH_TOPICS)
+
+    for i, topic in enumerate(
+        SEARCH_TOPICS
+    ):
+
+        results = get_google_news_rss(
+            topic
+        )
+
+        all_news.extend(
+            results
+        )
+
+        progress.progress(
+            (i + 1) / total
+        )
+
+    progress.empty()
+
+    # Deduplicate berdasarkan URL
+    unique = {}
+
+    for item in all_news:
+
+        link = item["link"]
+
+        if link not in unique:
+
+            unique[link] = item
+
+    return list(
+        unique.values()
+    )
+
+
+# ============================================================
+# EKSTRAK MEDIA
+# ============================================================
+
+def get_media_from_url(url):
+
+    try:
+
+        domain = urlparse(
+            url
+        ).netloc.lower()
+
+        domain = domain.replace(
+            "www.",
+            ""
+        )
+
+        media_mapping = {
+
+            "kompas.com":
+                "KOMPAS.com",
+
+            "detik.com":
+                "detik.com",
+
+            "jawapos.com":
+                "Jawa Pos",
+
+            "radarlamongan.jawapos.com":
+                "Radar Lamongan",
+
+            "antaranews.com":
+                "ANTARA",
+
+            "jatim.antaranews.com":
+                "ANTARA Jatim",
+
+            "klikjatim.com":
+                "KlikJatim",
+
+            "beritajatim.com":
+                "BeritaJatim",
+
+            "surabaya.tribunnews.com":
+                "Tribun Jatim"
+
         }
 
+        for domain_key, name in media_mapping.items():
+
+            if domain_key in domain:
+
+                return name
+
+        return domain
+
+    except Exception:
+
+        return "Media tidak diketahui"
+
+
+# ============================================================
+# EKSTRAK ISI ARTIKEL
+# ============================================================
+
+def extract_article(url):
+
+    try:
+
+        response = requests.get(
+            url,
+            timeout=10,
+            headers={
+                "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+        )
+
+        response.raise_for_status()
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
+
+        # Hapus elemen yang tidak diperlukan
+
+        for element in soup(
+            [
+                "script",
+                "style",
+                "nav",
+                "footer",
+                "header",
+                "aside",
+                "form"
+            ]
+        ):
+
+            element.decompose()
+
+        # Cari paragraf
+
+        paragraphs = []
+
+        for p in soup.find_all(
+            "p"
+        ):
+
+            text = clean_text(
+                p.get_text(" ")
+            )
+
+            if len(text) >= 40:
+
+                paragraphs.append(
+                    text
+                )
+
+        # Hilangkan duplikasi
+
+        unique_paragraphs = []
+
+        seen = set()
+
+        for p in paragraphs:
+
+            key = p.lower()
+
+            if key not in seen:
+
+                seen.add(key)
+
+                unique_paragraphs.append(
+                    p
+                )
+
+        content = " ".join(
+            unique_paragraphs
+        )
+
+        # Batasi panjang
+        content = content[:12000]
+
+        # Cari tanggal meta
+
+        date = ""
+
+        meta_candidates = [
+
+            soup.find(
+                "meta",
+                attrs={
+                    "property":
+                    "article:published_time"
+                }
+            ),
+
+            soup.find(
+                "meta",
+                attrs={
+                    "name":
+                    "date"
+                }
+            ),
+
+            soup.find(
+                "meta",
+                attrs={
+                    "name":
+                    "pubdate"
+                }
+            )
+
+        ]
+
+        for meta in meta_candidates:
+
+            if meta and meta.get(
+                "content"
+            ):
+
+                date = meta[
+                    "content"
+                ]
+
+                break
+
+        return {
+
+            "isi_berita":
+                content,
+
+            "tanggal":
+                date
+
+        }
+
+    except Exception:
+
+        return {
+
+            "isi_berita":
+                "",
+
+            "tanggal":
+                ""
+
+        }
+
+
+# ============================================================
+# ANALISIS GEMINI AI
+# ============================================================
+
+def analyze_with_gemini(
+    title,
+    content
+):
+
+    if not content:
+
+        return {
+
+            "relevan": False,
+
+            "isu_ekonomi":
+                "Tidak dapat dianalisis",
+
+            "sektor":
+                "Tidak teridentifikasi",
+
+            "ringkasan":
+                "Isi berita tidak berhasil diambil."
+
+        }
+
+    # Jika Gemini belum dikonfigurasi
+
+    if gemini_client is None:
+
+        return {
+
+            "relevan": True,
+
+            "isu_ekonomi":
+                "Belum dianalisis AI",
+
+            "sektor":
+                "Belum dianalisis AI",
+
+            "ringkasan":
+                content[:400]
+
+        }
+
+    sector_text = "\n".join(
+        [
+            f"- {x}"
+            for x in SEKTOR_BPS
+        ]
+    )
+
     prompt = f"""
-Anda adalah analis berita ekonomi BPS Kabupaten Lamongan.
-Tentukan apakah berita ini merupakan berita ekonomi Kabupaten Lamongan atau bukan.
+Kamu adalah analis ekonomi BPS Kabupaten Lamongan.
 
-KRITERIA RELEVAN (ekonomi=true):
-Membahas pasar, UMKM, pertanian, perikanan, industri, harga, pedagang, ekonomi, pembangunan fisik, investasi.
+Baca ISI BERITA, jangan hanya membaca judul.
 
-KRITERIA TOLAK (ekonomi=false):
-Kriminal, sepak bola/Persela, politik murni, kecelakaan.
+Tentukan apakah berita tersebut berkaitan
+dengan ekonomi, pembangunan, kesejahteraan,
+usaha, perdagangan, pertanian, industri,
+jasa, investasi, atau aktivitas ekonomi
+di Kabupaten Lamongan.
 
-Judul: {title_text}
-Isi: {content_text}
+JUDUL:
+{title}
 
-Jawab HANYA JSON format berikut:
+ISI BERITA:
+{content[:9000]}
+
+PILIH SALAH SATU SEKTOR BERIKUT:
+
+{sector_text}
+
+ATURAN:
+
+1. Gunakan isi berita sebagai dasar utama.
+2. Jangan menentukan sektor hanya berdasarkan judul.
+3. Jika berita bukan ekonomi, relevan = false.
+4. Jika berita ekonomi, relevan = true.
+5. Pilih tepat SATU sektor.
+6. Buat isu ekonomi yang spesifik.
+7. Ringkasan harus berdasarkan isi berita.
+8. Jangan hanya mengulang judul.
+9. Ringkasan maksimal 80 kata.
+10. Jangan membuat informasi yang tidak ada dalam berita.
+
+Keluarkan HANYA JSON:
+
 {{
-    "ekonomi": true,
-    "sektor_kode": "G",
-    "isu_ekonomi": "UMKM",
-    "ringkasan": "Ulasan deskriptif ringkas berita (maksimal 25 kata dan jangan mengulang kata-kata di judul)."
+    "relevan": true,
+    "isu_ekonomi": "...",
+    "sektor": "...",
+    "ringkasan": "..."
 }}
 """
 
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
+
+        response = gemini_client.models.generate_content(
+
+            model="gemini-2.5-flash",
+
+            contents=prompt
+
         )
-        text_resp = response.text.strip()
-        if "```json" in text_resp:
-            text_resp = text_resp.split("```json")[1].split("```")[0].strip()
-        elif "```" in text_resp:
-            text_resp = text_resp.split("```")[1].split("```")[0].strip()
 
-        res = json.loads(text_resp)
-        
-        # Jaring pengaman jika AI Gemini menolak berita padahal ada kata ekonomi lokal
-        if not res.get("ekonomi", False):
-            if any(w in lower_title for w in ["ekonomi", "pasar", "umkm", "tani", "ikan", "harga", "panen", "dagang", "pedagang", "pembangunan", "wisata"]):
-                res["ekonomi"] = True
-                res["sektor_kode"] = "G"
-                res["isu_ekonomi"] = "Ekonomi Daerah"
-                res["ringkasan"] = f"Pemberitaan ini mengulas mengenai {title_text.lower()} di Kabupaten Lamongan."
-            else:
-                return {"ekonomi": False}
+        text = response.text.strip()
 
-        code = str(res.get("sektor_kode", "")).upper()
-        sektor_name = SEKTOR_BPS.get(code, fallback_sector(title_text))
+        # Bersihkan markdown JSON
 
-        ringkasan = str(res.get("ringkasan", "")).strip()
-        norm_title = normalize_text(title_text)
-        norm_summary = normalize_text(ringkasan)
+        text = re.sub(
+            r"```json",
+            "",
+            text,
+            flags=re.I
+        )
 
-        if norm_title in norm_summary or norm_summary in norm_title or len(ringkasan) < 15:
-            ringkasan = f"Pemberitaan ini mengulas mengenai {title_text.lower()} yang berdampak pada perekonomian di Kabupaten Lamongan."
+        text = text.replace(
+            "```",
+            ""
+        ).strip()
+
+        result = json.loads(
+            text
+        )
+
+        # Validasi sektor
+
+        sector = result.get(
+            "sektor",
+            ""
+        )
+
+        matched_sector = None
+
+        for valid_sector in SEKTOR_BPS:
+
+            if (
+                sector.lower()
+                == valid_sector.lower()
+            ):
+
+                matched_sector = (
+                    valid_sector
+                )
+
+                break
+
+        if not matched_sector:
+
+            # Coba berdasarkan kode sektor
+
+            for valid_sector in SEKTOR_BPS:
+
+                code = valid_sector.split(
+                    " - "
+                )[0]
+
+                if sector.upper().startswith(
+                    code
+                ):
+
+                    matched_sector = (
+                        valid_sector
+                    )
+
+                    break
+
+        if not matched_sector:
+
+            matched_sector = (
+                "Tidak teridentifikasi"
+            )
 
         return {
-            "ekonomi": True,
-            "sektor": sektor_name,
-            "isu_ekonomi": str(res.get("isu_ekonomi", "Ekonomi Daerah")).strip(),
-            "ringkasan": ringkasan
+
+            "relevan":
+                bool(
+                    result.get(
+                        "relevan",
+                        False
+                    )
+                ),
+
+            "isu_ekonomi":
+                result.get(
+                    "isu_ekonomi",
+                    "Ekonomi Umum"
+                ),
+
+            "sektor":
+                matched_sector,
+
+            "ringkasan":
+                result.get(
+                    "ringkasan",
+                    ""
+                )
+
         }
+
     except Exception as e:
-        logger.error(f"Gemini API Error: {e}")
-        if any(w in lower_title for w in ["ekonomi", "pasar", "umkm", "tani", "ikan", "harga", "panen", "dagang"]):
-            return {
-                "ekonomi": True,
-                "sektor": fallback_sector(title_text),
-                "isu_ekonomi": "Ekonomi Daerah",
-                "ringkasan": f"Laporan berita ini mengulas tentang {title_text.lower()} di Kabupaten Lamongan."
-            }
-        return {"ekonomi": False}
+
+        return {
+
+            "relevan":
+                True,
+
+            "isu_ekonomi":
+                "Ekonomi Umum",
+
+            "sektor":
+                "Tidak teridentifikasi",
+
+            "ringkasan":
+                content[:500]
+
+        }
+
 
 # ============================================================
-# 📥 PENGAMBILAN BERITA VIA GOOGLE NEWS RSS
+# SIMPAN DATABASE
 # ============================================================
 
-def fetch_and_process_news():
-    topics = [
-        "Lamongan",
-        "Kabupaten Lamongan",
-        "Pemkab Lamongan",
-        "Lamongan ekonomi",
-        "Lamongan UMKM pasar",
-        "Lamongan tani nelayan"
-    ]
-    raw_articles = []
-    
-    progress = st.progress(0)
-    status = st.empty()
+def save_news(news):
 
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    })
+    conn = get_connection()
 
-    for i, t in enumerate(topics):
-        status.info(f"🔎 Mengambil berita topik '{t}' dari internet...")
-        try:
-            rss_url = f"https://news.google.com/rss/search?q={quote(t)}&hl=id&gl=ID&ceid=ID:id"
-            resp = session.get(rss_url, timeout=12)
-            feed = feedparser.parse(resp.content)
+    cursor = conn.cursor()
 
-            for entry in feed.entries:
-                title = clean_text(entry.get("title", ""))
-                link = normalize_url(entry.get("link", ""))
-                content = clean_text(entry.get("summary", ""))
+    try:
 
-                if not title or not link or len(title) < 10:
-                    continue
+        cursor.execute("""
+            INSERT OR IGNORE INTO berita
+            (
+                tanggal,
+                media,
+                judul,
+                isu_ekonomi,
+                sektor,
+                ringkasan,
+                isi_berita,
+                link,
+                relevan,
+                created_at
+            )
 
-                source_name = "Berita Online"
-                if entry.get("source") and entry.source.get("title"):
-                    source_name = entry.source.get("title")
-                elif " - " in title:
-                    source_name = title.split(" - ")[-1].strip()
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
 
-                pub_date = datetime.now().strftime("%Y-%m-%d")
-                if entry.get("published_parsed"):
-                    pub_date = datetime(*entry.published_parsed[:6]).strftime("%Y-%m-%d")
+            news["tanggal"],
 
-                raw_articles.append({
-                    "title": title,
-                    "content": content if len(content) > 10 else title,
-                    "source": source_name,
-                    "date": pub_date,
-                    "url": link
-                })
-        except Exception as e:
-            logger.error(f"Error topic {t}: {e}")
-        progress.progress((i + 1) / len(topics))
+            news["media"],
 
-    status.info("🤖 AI Gemini sedang menyaring & mengelompokkan berita ekonomi...")
-    
-    unique_articles = {make_id(a["title"], a["url"]): a for a in raw_articles}.values()
+            news["judul"],
 
-    final_records = []
-    for art in unique_articles:
-        ai_res = analyze_with_gemini(art)
-        if ai_res.get("ekonomi") is True:
-            final_records.append({
-                "ID": make_id(art["title"], art["url"]),
-                "Tanggal Berita": art["date"],
-                "Media": art["source"],
-                "Judul Berita": art["title"],
-                "Isu Ekonomi": ai_res["isu_ekonomi"],
-                "Sektor": ai_res["sektor"],
-                "Ringkasan Berita": ai_res["ringkasan"],
-                "Link Berita": art["url"]
-            })
+            news["isu_ekonomi"],
 
-    status.success(f"✅ Selesai! Berhasil menemukan {len(final_records)} berita ekonomi Lamongan.")
-    progress.empty()
+            news["sektor"],
 
-    if not final_records:
-        return pd.DataFrame()
+            news["ringkasan"],
 
-    df = pd.DataFrame(final_records).drop_duplicates(subset=["ID"]).sort_values("Tanggal Berita", ascending=False)
+            news["isi_berita"],
+
+            news["link"],
+
+            1 if news["relevan"]
+            else 0,
+
+            datetime.now().isoformat()
+
+        ))
+
+        conn.commit()
+
+    except Exception:
+
+        pass
+
+    finally:
+
+        conn.close()
+
+
+# ============================================================
+# AMBIL DATA DARI DATABASE
+# ============================================================
+
+def load_database():
+
+    conn = get_connection()
+
+    df = pd.read_sql_query(
+        """
+        SELECT
+            id,
+            tanggal,
+            media,
+            judul,
+            isu_ekonomi,
+            sektor,
+            ringkasan,
+            link
+        FROM berita
+        WHERE relevan = 1
+        ORDER BY id DESC
+        """,
+        conn
+    )
+
+    conn.close()
+
     return df
 
-def create_sample_data():
-    return pd.DataFrame([
-        {"ID":"1","Tanggal Berita":"2026-08-17","Media":"ANTARAJATIM","Judul Berita":"Pertumbuhan Ekonomi Pesisir Lamongan Meningkat","Isu Ekonomi":"Perikanan","Sektor":"A - Pertanian, Kehutanan, dan Perikanan","Ringkasan Berita":"Aktivitas perikanan tangkap dan budidaya memberikan kontribusi terhadap pendapatan masyarakat pesisir Lamongan.","Link Berita":"https://jatim.antaranews.com/"},
-        {"ID":"2","Tanggal Berita":"2026-08-16","Media":"Radar Lamongan","Judul Berita":"Pasar Tradisional Lamongan Siap Digitalisasi UMKM","Isu Ekonomi":"UMKM dan Perdagangan","Sektor":"G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor","Ringkasan Berita":"Pedagang UMKM mendapatkan dukungan digitalisasi transaksi dan pemasaran untuk meningkatkan aktivitas perdagangan di pasar daerah.","Link Berita":"https://radarlamongan.jawapos.com/"}
-    ])
+
+# ============================================================
+# PROSES BERITA
+# ============================================================
+
+def process_news():
+
+    st.info(
+        "🔎 Mengambil berita terbaru..."
+    )
+
+    candidates = scrape_news()
+
+    if not candidates:
+
+        st.warning(
+            "Tidak ditemukan kandidat berita."
+        )
+
+        return
+
+    st.success(
+        f"Berhasil menemukan "
+        f"{len(candidates)} kandidat berita."
+    )
+
+    progress = st.progress(0)
+
+    total = len(candidates)
+
+    processed = 0
+
+    # ========================================================
+    # EKSTRAK ARTIKEL
+    # ========================================================
+
+    def worker(item):
+
+        article = extract_article(
+            item["link"]
+        )
+
+        title = item[
+            "judul_awal"
+        ]
+
+        content = article[
+            "isi_berita"
+        ]
+
+        media = get_media_from_url(
+            item["link"]
+        )
+
+        analysis = analyze_with_gemini(
+            title,
+            content
+        )
+
+        tanggal = (
+            article["tanggal"]
+            or item["tanggal_awal"]
+        )
+
+        return {
+
+            "tanggal":
+                tanggal,
+
+            "media":
+                media,
+
+            "judul":
+                title,
+
+            "isu_ekonomi":
+                analysis[
+                    "isu_ekonomi"
+                ],
+
+            "sektor":
+                analysis[
+                    "sektor"
+                ],
+
+            "ringkasan":
+                analysis[
+                    "ringkasan"
+                ],
+
+            "isi_berita":
+                content,
+
+            "link":
+                item["link"],
+
+            "relevan":
+                analysis[
+                    "relevan"
+                ]
+
+        }
+
+    # ========================================================
+    # PARALLEL PROCESSING
+    # ========================================================
+
+    with ThreadPoolExecutor(
+        max_workers=5
+    ) as executor:
+
+        futures = [
+            executor.submit(
+                worker,
+                item
+            )
+            for item in candidates
+        ]
+
+        for future in as_completed(
+            futures
+        ):
+
+            try:
+
+                result = future.result()
+
+                # Hanya simpan berita ekonomi
+
+                if result["relevan"]:
+
+                    save_news(
+                        result
+                    )
+
+            except Exception:
+
+                pass
+
+            processed += 1
+
+            progress.progress(
+                processed / total
+            )
+
+    progress.empty()
+
+    st.success(
+        "✅ Proses pengambilan dan analisis berita selesai."
+    )
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    '<div class="main-title">📰 Monitoring Berita Ekonomi Kabupaten Lamongan</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="subtitle">Dashboard pemantauan berita ekonomi Lamongan dari berbagai sumber media online</div>',
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.markdown(
+        "## ⚙️ Pengaturan"
+    )
+
+    st.write(
+        "Gunakan tombol berikut untuk mengambil berita terbaru."
+    )
+
+    if st.button(
+        "🔄 Ambil Berita Terbaru",
+        use_container_width=True
+    ):
+
+        process_news()
+
+        st.rerun()
+
+    st.divider()
+
+    st.markdown(
+        "### 📊 Database"
+    )
+
+    conn = get_connection()
+
+    count = pd.read_sql_query(
+        """
+        SELECT COUNT(*) AS jumlah
+        FROM berita
+        WHERE relevan = 1
+        """,
+        conn
+    ).iloc[0]["jumlah"]
+
+    conn.close()
+
+    st.metric(
+        "Total Berita",
+        int(count)
+    )
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+df = load_database()
+
+
+# ============================================================
+# JIKA DATA KOSONG
+# ============================================================
+
+if df.empty:
+
+    st.info(
+        "📭 Belum ada berita tersimpan. "
+        "Klik **Ambil Berita Terbaru** pada sidebar."
+    )
+
+    st.stop()
+
+
+# ============================================================
+# KONVERSI TANGGAL
+# ============================================================
+
+df["tanggal"] = pd.to_datetime(
+    df["tanggal"],
+    errors="coerce"
+)
+
+
+# ============================================================
+# KPI
+# ============================================================
+
+total_berita = len(df)
+
+total_media = (
+    df["media"]
+    .nunique()
+)
+
+total_sektor = (
+    df["sektor"]
+    .nunique()
+)
+
+total_isu = (
+    df["isu_ekonomi"]
+    .nunique()
+)
+
+c1, c2, c3, c4 = st.columns(4)
+
+
+with c1:
+
+    st.markdown(
+        f"""
+        <div class="kpi">
+            <div class="kpi-title">
+                Total Berita
+            </div>
+            <div class="kpi-value">
+                {total_berita}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with c2:
+
+    st.markdown(
+        f"""
+        <div class="kpi">
+            <div class="kpi-title">
+                Media
+            </div>
+            <div class="kpi-value">
+                {total_media}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with c3:
+
+    st.markdown(
+        f"""
+        <div class="kpi">
+            <div class="kpi-title">
+                Sektor BPS
+            </div>
+            <div class="kpi-value">
+                {total_sektor}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with c4:
+
+    st.markdown(
+        f"""
+        <div class="kpi">
+            <div class="kpi-title">
+                Isu Ekonomi
+            </div>
+            <div class="kpi-value">
+                {total_isu}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
+# FILTER
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">🔎 Filter Berita</div>',
+    unsafe_allow_html=True
+)
+
+f1, f2, f3 = st.columns(3)
+
+
+with f1:
+
+    media_options = [
+        "Semua Media"
+    ] + sorted(
+        df["media"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    selected_media = st.selectbox(
+        "Media",
+        media_options
+    )
+
+
+with f2:
+
+    sector_options = [
+        "Semua Sektor"
+    ] + sorted(
+        df["sektor"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    selected_sector = st.selectbox(
+        "Sektor",
+        sector_options
+    )
+
+
+with f3:
+
+    keyword = st.text_input(
+        "🔍 Cari berita",
+        placeholder=
+        "Contoh: UMKM, pertanian, pasar..."
+    )
+
+
+# ============================================================
+# FILTER DATA
+# ============================================================
+
+filtered = df.copy()
+
+
+if selected_media != "Semua Media":
+
+    filtered = filtered[
+        filtered["media"]
+        == selected_media
+    ]
+
+
+if selected_sector != "Semua Sektor":
+
+    filtered = filtered[
+        filtered["sektor"]
+        == selected_sector
+    ]
+
+
+if keyword:
+
+    mask = (
+
+        filtered["judul"]
+        .fillna("")
+        .str.contains(
+            keyword,
+            case=False,
+            na=False
+        )
+
+        |
+
+        filtered["ringkasan"]
+        .fillna("")
+        .str.contains(
+            keyword,
+            case=False,
+            na=False
+        )
+
+        |
+
+        filtered["isu_ekonomi"]
+        .fillna("")
+        .str.contains(
+            keyword,
+            case=False,
+            na=False
+        )
+
+    )
+
+    filtered = filtered[
+        mask
+    ]
+
+
+# ============================================================
+# HASIL
+# ============================================================
+
+st.markdown(
+    f"""
+    <div class="section-title">
+        📰 Berita Ekonomi
+        ({len(filtered)} berita)
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# CARD BERITA
+# ============================================================
+
+for _, row in filtered.iterrows():
+
+    tanggal = row["tanggal"]
+
+    if pd.notna(tanggal):
+
+        tanggal_text = tanggal.strftime(
+            "%d %B %Y"
+        )
+
+    else:
+
+        tanggal_text = "-"
+
+    st.markdown(
+        f"""
+        <div class="news-card">
+
+            <div class="news-title">
+                {row["judul"]}
+            </div>
+
+            <div class="news-meta">
+                🗓️ {tanggal_text}
+                &nbsp; | &nbsp;
+                📰 {row["media"]}
+            </div>
+
+            <div class="news-meta">
+                🏭 {row["sektor"]}
+                &nbsp; | &nbsp;
+                💡 {row["isu_ekonomi"]}
+            </div>
+
+            <div class="news-summary">
+                {row["ringkasan"]}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.link_button(
+        "🔗 Baca Berita Asli",
+        row["link"]
+    )
+
+    st.divider()
+
+
+# ============================================================
+# EXPORT EXCEL
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">📥 Ekspor Data</div>',
+    unsafe_allow_html=True
+)
+
+export_df = filtered.copy()
+
+export_df["tanggal"] = (
+    export_df["tanggal"]
+    .dt.strftime("%Y-%m-%d")
+)
+
+export_df = export_df[
+    [
+        "tanggal",
+        "media",
+        "judul",
+        "isu_ekonomi",
+        "sektor",
+        "ringkasan",
+        "link"
+    ]
+]
+
+export_df.columns = [
+    "Tanggal Berita",
+    "Media",
+    "Judul Berita",
+    "Isu Ekonomi",
+    "Sektor",
+    "Ringkasan Berita",
+    "Link Berita"
+]
+
+csv = export_df.to_csv(
+    index=False,
+    encoding="utf-8-sig"
+)
+
+st.download_button(
+    "⬇️ Download Data CSV",
+    data=csv,
+    file_name=
+    "monitoring_berita_ekonomi_lamongan.csv",
+    mime="text/csv",
+    use_container_width=True
+)
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | "
+    "Web Scraping + Gemini AI + Database"
+)
 
 # ============================================================
 # 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
