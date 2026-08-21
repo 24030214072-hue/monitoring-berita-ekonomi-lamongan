@@ -13,7 +13,6 @@ import base64
 
 import streamlit as st
 import pandas as pd
-import sqlite3
 import feedparser
 import requests
 from bs4 import BeautifulSoup
