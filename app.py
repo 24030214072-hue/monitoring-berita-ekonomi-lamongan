@@ -6,7 +6,7 @@ import hashlib
 import logging
 from pathlib import Path
 from datetime import datetime
-from urllib.parse import quote, urlparse, urljoin
+from urllib.parse import quote, urlparse, urljoin, parse_qs, unquote
 from difflib import SequenceMatcher
 import io
 import base64
@@ -261,7 +261,47 @@ SEARCH_TOPICS = [
 ]
 
 
+def resolve_article_url(url):
+    """
+    Mengubah link Google News menjadi URL artikel media asli.
+    Jika redirect gagal, URL awal tetap digunakan.
+    """
+    if not url:
+        return ""
+
+    try:
+        # Google News biasanya akan mengarahkan ke website media asli.
+        response = requests.get(
+            url,
+            timeout=12,
+            allow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
+                ),
+                "Accept-Language": "id-ID,id;q=0.9,en;q=0.8",
+            },
+        )
+
+        final_url = response.url or url
+
+        # Jangan menggunakan URL Google News sebagai URL artikel
+        if "news.google.com" not in urlparse(final_url).netloc.lower():
+            return final_url
+
+    except Exception as e:
+        logger.warning("Gagal resolve URL Google News %s: %s", url, e)
+
+    return url
+
+
 def get_google_news_rss(keyword):
+    """
+    Mengambil kandidat berita dari Google News RSS.
+    Fungsi ini sengaja hanya mengambil metadata/kandidat.
+    Isi artikel diambil oleh extract_article().
+    """
 
     url = (
         "https://news.google.com/rss/search?"
@@ -272,115 +312,153 @@ def get_google_news_rss(keyword):
     )
 
     try:
-
         response = requests.get(
             url,
-            timeout=10,
+            timeout=20,
             headers={
-                "User-Agent":
-                "Mozilla/5.0"
-            }
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
+                ),
+                "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+                "Accept-Language": "id-ID,id;q=0.9,en;q=0.8",
+            },
         )
 
         response.raise_for_status()
 
-        feed = feedparser.parse(
-            response.content
-        )
+        feed = feedparser.parse(response.content)
 
         results = []
 
         for item in feed.entries:
-
-            title = clean_text(
-                item.get("title", "")
-            )
-
-            link = item.get(
-                "link",
-                ""
-            )
-
-            published = item.get(
-                "published",
-                ""
-            )
-
+            title = clean_text(item.get("title", ""))
+            google_link = item.get("link", "")
+            published = item.get("published", "")
             description = clean_text(
-                item.get(
-                    "summary",
-                    ""
-                )
+                item.get("summary", "") or
+                item.get("description", "")
             )
 
-            if title and link:
+            if not title or not google_link:
+                continue
 
-                results.append({
+            # Ambil URL media asli.
+            article_url = resolve_article_url(google_link)
 
-                    "judul_awal": title,
+            # Jika redirect belum berhasil, tetap simpan link Google News
+            # karena extract_article akan mencoba URL tersebut.
+            if not article_url:
+                article_url = google_link
 
-                    "link": link,
+            results.append({
+                "judul_awal": title,
+                "link": article_url,
+                "google_link": google_link,
+                "tanggal_awal": published,
+                "deskripsi_awal": description,
+            })
 
-                    "tanggal_awal":
-                        published,
-
-                    "deskripsi_awal":
-                        description
-
-                })
+        logger.info(
+            "RSS '%s': HTTP %s, %s entry",
+            keyword,
+            response.status_code,
+            len(results),
+        )
 
         return results
 
-    except Exception:
-
+    except Exception as e:
+        logger.exception(
+            "RSS gagal untuk keyword '%s': %s",
+            keyword,
+            e,
+        )
         return []
-
 
 # ============================================================
 # SCRAPE SEMUA TOPIK
 # ============================================================
 
 def scrape_news():
+    """
+    Mengambil kandidat berita dari seluruh topik secara paralel.
+    Sebelumnya proses dilakukan satu per satu sehingga lambat dan
+    satu kegagalan request dapat membuat proses terasa seperti 0.
+    """
 
     all_news = []
 
     progress = st.progress(0)
+    status = st.empty()
 
     total = len(SEARCH_TOPICS)
 
-    for i, topic in enumerate(
-        SEARCH_TOPICS
-    ):
+    def fetch_topic(topic):
+        return topic, get_google_news_rss(topic)
 
-        results = get_google_news_rss(
-            topic
-        )
+    completed = 0
 
-        all_news.extend(
-            results
-        )
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [
+            executor.submit(fetch_topic, topic)
+            for topic in SEARCH_TOPICS
+        ]
 
-        progress.progress(
-            (i + 1) / total
-        )
+        for future in as_completed(futures):
+            try:
+                topic, results = future.result()
+
+                if results:
+                    all_news.extend(results)
+
+                completed += 1
+                status.write(
+                    f"🔎 Mencari berita: {completed}/{total} topik — "
+                    f"{len(all_news)} kandidat ditemukan"
+                )
+                progress.progress(completed / total)
+
+            except Exception as e:
+                completed += 1
+                logger.exception("Gagal memproses topic: %s", e)
+                progress.progress(completed / total)
 
     progress.empty()
+    status.empty()
 
-    # Deduplicate berdasarkan URL
+    # Deduplicate:
+    # 1) URL artikel
+    # 2) judul yang sangat sama
     unique = {}
+    title_keys = set()
 
     for item in all_news:
+        link = (item.get("link") or "").strip()
+        title = clean_text(item.get("judul_awal", ""))
 
-        link = item["link"]
+        if not link or not title:
+            continue
 
-        if link not in unique:
+        title_key = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
 
-            unique[link] = item
+        if link in unique:
+            continue
 
-    return list(
-        unique.values()
+        if title_key in title_keys:
+            continue
+
+        unique[link] = item
+        title_keys.add(title_key)
+
+    results = list(unique.values())
+
+    logger.info(
+        "Total kandidat setelah deduplikasi: %s",
+        len(results),
     )
 
+    return results
 
 # ============================================================
 # EKSTRAK MEDIA
@@ -448,150 +526,231 @@ def get_media_from_url(url):
 # ============================================================
 
 def extract_article(url):
+    """
+    Ekstraksi isi artikel yang lebih tahan terhadap variasi struktur
+    website media. Jika <p> tidak berhasil, gunakan meta description,
+    JSON-LD articleBody, atau body text sebagai fallback.
+    """
 
-    try:
+    original_url = url or ""
+    candidate_urls = [original_url]
 
-        response = requests.get(
-            url,
-            timeout=10,
-            headers={
-                "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-            }
-        )
+    # Kalau URL masih Google News, resolve dulu.
+    resolved = resolve_article_url(original_url)
+    if resolved and resolved not in candidate_urls:
+        candidate_urls.insert(0, resolved)
 
-        response.raise_for_status()
+    last_error = ""
 
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser"
-        )
+    for target_url in candidate_urls:
+        if not target_url:
+            continue
 
-        # Hapus elemen yang tidak diperlukan
+        try:
+            response = requests.get(
+                target_url,
+                timeout=15,
+                allow_redirects=True,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/131.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "id-ID,id;q=0.9,en;q=0.8",
+                },
+            )
 
-        for element in soup(
-            [
-                "script",
-                "style",
-                "nav",
-                "footer",
-                "header",
-                "aside",
-                "form"
+            response.raise_for_status()
+
+            final_url = response.url or target_url
+            soup = BeautifulSoup(
+                response.text,
+                "html.parser",
+            )
+
+            # Simpan metadata tanggal sebelum elemen dihapus.
+            date = ""
+
+            date_meta_selectors = [
+                ("meta", {"property": "article:published_time"}),
+                ("meta", {"property": "og:published_time"}),
+                ("meta", {"name": "date"}),
+                ("meta", {"name": "pubdate"}),
+                ("meta", {"itemprop": "datePublished"}),
             ]
-        ):
 
-            element.decompose()
+            for tag_name, attrs in date_meta_selectors:
+                meta = soup.find(tag_name, attrs=attrs)
+                if meta and meta.get("content"):
+                    date = meta.get("content")
+                    break
 
-        # Cari paragraf
-
-        paragraphs = []
-
-        for p in soup.find_all(
-            "p"
-        ):
-
-            text = clean_text(
-                p.get_text(" ")
-            )
-
-            if len(text) >= 40:
-
-                paragraphs.append(
-                    text
-                )
-
-        # Hilangkan duplikasi
-
-        unique_paragraphs = []
-
-        seen = set()
-
-        for p in paragraphs:
-
-            key = p.lower()
-
-            if key not in seen:
-
-                seen.add(key)
-
-                unique_paragraphs.append(
-                    p
-                )
-
-        content = " ".join(
-            unique_paragraphs
-        )
-
-        # Batasi panjang
-        content = content[:12000]
-
-        # Cari tanggal meta
-
-        date = ""
-
-        meta_candidates = [
-
-            soup.find(
-                "meta",
-                attrs={
-                    "property":
-                    "article:published_time"
-                }
-            ),
-
-            soup.find(
-                "meta",
-                attrs={
-                    "name":
-                    "date"
-                }
-            ),
-
-            soup.find(
-                "meta",
-                attrs={
-                    "name":
-                    "pubdate"
-                }
-            )
-
-        ]
-
-        for meta in meta_candidates:
-
-            if meta and meta.get(
-                "content"
+            # JSON-LD dapat berisi articleBody dan datePublished.
+            jsonld_bodies = []
+            for script in soup.find_all(
+                "script",
+                attrs={"type": "application/ld+json"},
             ):
+                try:
+                    raw = script.string or script.get_text()
+                    data = json.loads(raw)
 
-                date = meta[
-                    "content"
+                    objects = data if isinstance(data, list) else [data]
+
+                    for obj in objects:
+                        if not isinstance(obj, dict):
+                            continue
+
+                        # @graph
+                        graph = obj.get("@graph")
+                        if isinstance(graph, list):
+                            objects.extend(
+                                x for x in graph
+                                if isinstance(x, dict)
+                            )
+
+                        body = obj.get("articleBody")
+                        if isinstance(body, str) and len(body) > 100:
+                            jsonld_bodies.append(clean_text(body))
+
+                        if not date:
+                            published = (
+                                obj.get("datePublished")
+                                or obj.get("dateCreated")
+                            )
+                            if published:
+                                date = str(published)
+
+                except Exception:
+                    continue
+
+            # Hapus elemen yang biasanya bukan isi berita.
+            for element in soup.find_all(
+                [
+                    "script",
+                    "style",
+                    "nav",
+                    "footer",
+                    "header",
+                    "aside",
+                    "form",
+                    "noscript",
+                    "svg",
                 ]
+            ):
+                element.decompose()
 
-                break
+            paragraphs = []
 
-        return {
+            # Prioritaskan selector artikel.
+            article_roots = soup.find_all(
+                [
+                    "article",
+                    "main",
+                ]
+            )
 
-            "isi_berita":
-                content,
+            search_roots = article_roots if article_roots else [soup]
 
-            "tanggal":
-                date
+            for root in search_roots:
+                for p in root.find_all("p"):
+                    value = clean_text(p.get_text(" ", strip=True))
 
-        }
+                    # Hindari paragraf menu/promo yang sangat pendek.
+                    if len(value) >= 45:
+                        paragraphs.append(value)
 
-    except Exception:
+            # Fallback seluruh halaman.
+            if len(paragraphs) < 3:
+                for p in soup.find_all("p"):
+                    value = clean_text(p.get_text(" ", strip=True))
+                    if len(value) >= 45:
+                        paragraphs.append(value)
 
-        return {
+            unique_paragraphs = []
+            seen = set()
 
-            "isi_berita":
-                "",
+            for paragraph in paragraphs:
+                key = re.sub(
+                    r"\s+",
+                    " ",
+                    paragraph.lower(),
+                ).strip()
 
-            "tanggal":
-                ""
+                if key not in seen:
+                    seen.add(key)
+                    unique_paragraphs.append(paragraph)
 
-        }
+            content = " ".join(unique_paragraphs)
 
+            # Fallback JSON-LD.
+            if len(content) < 300 and jsonld_bodies:
+                content = max(
+                    jsonld_bodies,
+                    key=len,
+                )
+
+            # Fallback meta description.
+            if len(content) < 200:
+                description = ""
+
+                for attrs in [
+                    {"name": "description"},
+                    {"property": "og:description"},
+                ]:
+                    meta = soup.find(
+                        "meta",
+                        attrs=attrs,
+                    )
+
+                    if meta and meta.get("content"):
+                        description = clean_text(
+                            meta.get("content")
+                        )
+                        if len(description) > len(content):
+                            content = description
+
+            content = content[:15000]
+
+            if content:
+                logger.info(
+                    "Artikel berhasil diekstrak: %s | %s karakter | %s",
+                    final_url,
+                    len(content),
+                    date,
+                )
+
+                return {
+                    "isi_berita": content,
+                    "tanggal": date,
+                    "url_final": final_url,
+                }
+
+            last_error = (
+                f"HTTP {response.status_code}, "
+                "halaman tidak menghasilkan isi artikel"
+            )
+
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(
+                "Gagal ekstrak %s: %s",
+                target_url,
+                e,
+            )
+
+    logger.warning(
+        "Semua metode ekstraksi gagal untuk %s: %s",
+        original_url,
+        last_error,
+    )
+
+    return {
+        "isi_berita": "",
+        "tanggal": "",
+        "url_final": original_url,
+    }
 
 # ============================================================
 # ANALISIS GEMINI AI
@@ -922,16 +1081,35 @@ def process_news():
 
     if not candidates:
 
-        st.warning(
-            "Tidak ditemukan kandidat berita."
+        st.error(
+            "❌ Tidak ada kandidat berita yang berhasil diambil."
         )
-
+        st.info(
+            "Periksa koneksi Google News RSS dan lihat app.log "
+            "untuk mengetahui keyword mana yang gagal."
+        )
         return
 
     st.success(
         f"Berhasil menemukan "
         f"{len(candidates)} kandidat berita."
     )
+
+    # Tampilkan beberapa kandidat untuk memastikan scraping berjalan.
+    with st.expander("🔎 Detail proses scraping", expanded=False):
+        preview = pd.DataFrame([
+            {
+                "Judul": x.get("judul_awal", ""),
+                "URL": x.get("link", ""),
+                "Tanggal RSS": x.get("tanggal_awal", ""),
+            }
+            for x in candidates[:10]
+        ])
+        st.dataframe(
+            preview,
+            use_container_width=True,
+            hide_index=True,
+        )
 
     progress = st.progress(0)
 
@@ -953,12 +1131,27 @@ def process_news():
             "judul_awal"
         ]
 
-        content = article[
-            "isi_berita"
-        ]
+        content = article.get(
+            "isi_berita",
+            ""
+        )
+
+        # Jika halaman media memblokir scraping,
+        # gunakan deskripsi dari RSS sebagai fallback.
+        # Ini mencegah seluruh hasil menjadi 0.
+        if len(content.strip()) < 200:
+            rss_description = clean_text(
+                item.get("deskripsi_awal", "")
+            )
+
+            if len(rss_description) > len(content):
+                content = rss_description
 
         media = get_media_from_url(
-            item["link"]
+            article.get(
+                "url_final",
+                item["link"]
+            )
         )
 
         analysis = analyze_with_gemini(
@@ -967,8 +1160,13 @@ def process_news():
         )
 
         tanggal = (
-            article["tanggal"]
-            or item["tanggal_awal"]
+            article.get("tanggal", "")
+            or item.get("tanggal_awal", "")
+        )
+
+        final_link = article.get(
+            "url_final",
+            item["link"]
         )
 
         return {
@@ -1001,7 +1199,7 @@ def process_news():
                 content,
 
             "link":
-                item["link"],
+                final_link,
 
             "relevan":
                 analysis[
@@ -1034,17 +1232,16 @@ def process_news():
 
                 result = future.result()
 
-                # Hanya simpan berita ekonomi
-
+                # Simpan berita yang dinyatakan relevan oleh AI.
                 if result["relevan"]:
+                    save_news(result)
 
-                    save_news(
-                        result
-                    )
+            except Exception as e:
 
-            except Exception:
-
-                pass
+                logger.exception(
+                    "Gagal memproses artikel: %s",
+                    e,
+                )
 
             processed += 1
 
@@ -1054,9 +1251,26 @@ def process_news():
 
     progress.empty()
 
-    st.success(
-        "✅ Proses pengambilan dan analisis berita selesai."
-    )
+    try:
+        conn = get_connection()
+        total_saved = conn.execute(
+            "SELECT COUNT(*) FROM berita WHERE relevan = 1"
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        total_saved = 0
+
+    if total_saved > 0:
+        st.success(
+            f"✅ Selesai. Database sekarang memiliki "
+            f"{total_saved:,} berita ekonomi."
+        )
+    else:
+        st.warning(
+            "⚠️ Kandidat berita ditemukan, tetapi belum ada "
+            "berita yang tersimpan. Buka 'Detail proses scraping' "
+            "dan periksa app.log."
+        )
 
 
 # ============================================================
