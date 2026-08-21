@@ -22,12 +22,6 @@ from google import genai
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-# Gemini
-try:
-    from google import genai
-except ImportError:
-    genai = None
-
 # ============================================================
 # 📌 SETUP FILE PATHS & LOGO BPS
 # ============================================================
