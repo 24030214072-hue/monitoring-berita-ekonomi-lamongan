@@ -13,6 +13,7 @@ import base64
 
 import streamlit as st
 import pandas as pd
+import sqlite3
 import feedparser
 import requests
 from bs4 import BeautifulSoup
@@ -1074,28 +1075,49 @@ if "data" not in st.session_state:
 with st.sidebar:
     if BPS_LOGO.exists():
         st.image(BPS_LOGO_URL, width=120)
-    
+
     st.title("Dashboard Control")
 
-    if client:
+    # ========================================================
+    # STATUS GEMINI AI
+    # ========================================================
+
+    if gemini_client is not None:
         st.success("🟢 Gemini AI: Active")
     else:
         st.error("🔴 Gemini AI: Offline (Cek Secrets)")
 
     st.divider()
+
     st.subheader("⚙️ Aksi")
-    
-    if st.button("🔄 Ambil Berita Terbaru", use_container_width=True):
+
+    if st.button(
+        "🔄 Ambil Berita Terbaru",
+        use_container_width=True
+    ):
         new_data = fetch_and_process_news()
+
         if not new_data.empty:
             st.session_state.data = new_data
-            new_data.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+
+            new_data.to_csv(
+                DATA_FILE,
+                index=False,
+                encoding="utf-8-sig"
+            )
+
             st.success("Data berhasil diperbarui!")
             st.rerun()
 
-    if st.button("🗑️ Reset & Bersihkan Data", use_container_width=True):
+    if st.button(
+        "🗑️ Reset & Bersihkan Data",
+        use_container_width=True
+    ):
         st.session_state.data = create_sample_data()
-        if DATA_FILE.exists(): DATA_FILE.unlink()
+
+        if DATA_FILE.exists():
+            DATA_FILE.unlink()
+
         st.rerun()
 
     st.divider()
