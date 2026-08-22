@@ -579,37 +579,116 @@ def load_news_data():
             columns=NEWS_COLUMNS
         )
 # ============================================================
-# TEST TAHAP 2
+# GOOGLE NEWS RSS
 # ============================================================
 
-st.divider()
+def search_news_rss(topic, max_results=8):
 
-st.subheader(
-    "🧪 Pengujian Struktur Data"
-)
+    articles = []
 
-test_data = pd.DataFrame([
-    {
-        "Tanggal Berita": "2026-08-22",
-        "Media": "Radar Lamongan",
-        "Judul Berita":
-            "Petani Lamongan Mendapat Bantuan Pupuk",
-        "Isi Artikel":
-            "Pemerintah memberikan bantuan pupuk "
-            "kepada petani di Kabupaten Lamongan "
-            "untuk mendukung produktivitas pertanian."
-        ,
-        "Link Berita":
-            "https://contoh.com/berita"
-    }
-])
+    try:
 
-st.dataframe(
-    test_data,
-    use_container_width=True,
-    hide_index=True
-)
+        encoded_topic = quote(
+            topic
+        )
 
+        rss_url = (
+            "https://news.google.com/rss/search?"
+            f"q={encoded_topic}"
+            "&hl=id"
+            "&gl=ID"
+            "&ceid=ID:id"
+        )
+
+        feed = feedparser.parse(
+            rss_url
+        )
+
+        for entry in feed.entries[:max_results]:
+
+            title = entry.get(
+                "title",
+                ""
+            )
+
+            link = entry.get(
+                "link",
+                ""
+            )
+
+            published = entry.get(
+                "published",
+                ""
+            )
+
+            # Google News biasanya memiliki
+            # source pada bagian source
+            source = ""
+
+            if hasattr(
+                entry,
+                "source"
+            ):
+                source = entry.source.get(
+                    "title",
+                    ""
+                )
+
+            articles.append({
+                "Tanggal Berita": published,
+                "Media": source,
+                "Judul Berita": title,
+                "Link Berita": link,
+                "Isi Artikel": ""
+            })
+
+    except Exception as e:
+
+        print(
+            f"RSS error untuk '{topic}': {e}"
+        )
+
+    return articles
+# ============================================================
+# TEST RSS
+# ============================================================
+
+if st.button(
+    "🧪 Test Pengambilan Berita"
+):
+
+    with st.spinner(
+        "Mengambil berita..."
+    ):
+
+        test_articles = search_news_rss(
+            "Lamongan ekonomi",
+            max_results=5
+        )
+
+    if test_articles:
+
+        test_df = pd.DataFrame(
+            test_articles
+        )
+
+        st.success(
+            f"Berhasil mendapatkan "
+            f"{len(test_df)} berita."
+        )
+
+        st.dataframe(
+            test_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+
+        st.error(
+            "Tidak ada berita yang ditemukan."
+        )
+    
 # ============================================================
 # KONFIGURASI GEMINI AI
 # ============================================================
