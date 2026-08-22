@@ -843,8 +843,7 @@ def extract_article_content(url):
 
     try:
 
-        def resolve_google_news_url(url):
-
+def resolve_google_news_url(url):
     if not url:
         return ""
 
