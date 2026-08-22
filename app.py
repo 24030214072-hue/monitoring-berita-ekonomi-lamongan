@@ -902,30 +902,115 @@ def resolve_google_news_url(url):
     if not url:
         return ""
 
-    # Sudah URL asli
+    # Jika sudah URL artikel asli
     if "news.google.com" not in url:
         return url
 
     try:
+        # -----------------------------------------------
+        # Ambil ID artikel dari URL Google News
+        # -----------------------------------------------
 
-        from gnews.utils.utils import resolve_url
+        parsed = urlparse(url)
 
-        real_url = resolve_url(
-            url
-        )
+        parts = parsed.path.strip("/").split("/")
 
-        if real_url:
+        article_id = parts[-1]
 
-            return real_url
+        if not article_id:
+            return ""
+
+        # -----------------------------------------------
+        # Coba decoder GNews
+        # -----------------------------------------------
+
+        try:
+
+            from gnews.utils.utils import resolve_url
+
+            real_url = resolve_url(url)
+
+            if (
+                real_url
+                and "news.google.com" not in real_url
+            ):
+                return real_url
+
+        except Exception as e:
+
+            print(
+                f"GNews resolver gagal: {e}"
+            )
+
+        # -----------------------------------------------
+        # Jika resolver gagal, kembalikan URL kosong
+        # agar fallback pencarian judul dijalankan
+        # -----------------------------------------------
+
+        return ""
 
     except Exception as e:
 
         print(
-            "GNews resolver gagal:",
-            e
+            f"Resolve Google News gagal: {e}"
         )
 
-    return url
+        return ""
+# ============================================================
+# FIND ARTICLE URL BY TITLE
+# ============================================================
+
+def find_article_url_by_title(title, media=""):
+
+    if not title:
+        return ""
+
+    try:
+
+        from googlesearch import search
+
+        # Bersihkan nama website dari judul
+        clean_title = title
+
+        if media:
+
+            suffix = f" - {media}"
+
+            if clean_title.endswith(suffix):
+
+                clean_title = clean_title[
+                    :-len(suffix)
+                ]
+
+        # Buat query
+        query = f'"{clean_title}"'
+
+        if media:
+
+            query += f" site:{media}"
+
+        results = search(
+            query,
+            num_results=5
+        )
+
+        for result_url in results:
+
+            if not result_url:
+                continue
+
+            if "news.google.com" in result_url:
+                continue
+
+            return result_url
+
+    except Exception as e:
+
+        print(
+            f"Fallback pencarian judul gagal: {e}"
+        )
+
+    return ""
 # ============================================================
 # CARI URL ASLI BERDASARKAN JUDUL
 # ============================================================
@@ -995,22 +1080,42 @@ def extract_article_content(
 
     try:
 
-        # ====================================================
-        # 1. CEK APAKAH URL GOOGLE NEWS
-        # ====================================================
+        # ================================================
+        # 1. TENTUKAN URL ARTIKEL ASLI
+        # ================================================
 
         real_url = url
 
+        # Jika URL Google News
         if "news.google.com" in url:
 
-            real_url = find_real_article_url(
-                title,
-                media
+            print(
+                "Mencoba resolve Google News..."
             )
 
-        # ====================================================
+            real_url = resolve_google_news_url(
+                url
+            )
+
+            # --------------------------------------------
+            # FALLBACK: CARI BERDASARKAN JUDUL
+            # --------------------------------------------
+
+            if not real_url:
+
+                print(
+                    "Resolver gagal. "
+                    "Mencari berdasarkan judul..."
+                )
+
+                real_url = find_article_url_by_title(
+                    title,
+                    media
+                )
+
+        # ================================================
         # 2. VALIDASI URL
-        # ====================================================
+        # ================================================
 
         if not real_url:
 
@@ -1021,15 +1126,14 @@ def extract_article_content(
             return ""
 
         print(
-            f"URL artikel asli: {real_url}"
+            f"URL asli ditemukan: {real_url}"
         )
 
-        # ====================================================
-        # 3. REQUEST
-        # ====================================================
+        # ================================================
+        # 3. REQUEST ARTIKEL
+        # ================================================
 
         headers = {
-
             "User-Agent": (
                 "Mozilla/5.0 "
                 "(Windows NT 10.0; Win64; x64) "
@@ -1037,9 +1141,9 @@ def extract_article_content(
                 "(KHTML, like Gecko) "
                 "Chrome/151.0 Safari/537.36"
             ),
-
-            "Accept-Language":
+            "Accept-Language": (
                 "id-ID,id;q=0.9,en;q=0.8"
+            )
         }
 
         response = requests.get(
@@ -1049,28 +1153,18 @@ def extract_article_content(
             allow_redirects=True
         )
 
-        if response.status_code != 200:
+        response.raise_for_status()
 
-            print(
-                f"HTTP Error: "
-                f"{response.status_code}"
-            )
-
-            return ""
-
-        # ====================================================
-        # 4. PARSE
-        # ====================================================
+        # ================================================
+        # 4. PARSE HTML
+        # ================================================
 
         soup = BeautifulSoup(
             response.text,
             "html.parser"
         )
 
-        # ====================================================
-        # 5. HAPUS ELEMENT
-        # ====================================================
-
+        # Hapus elemen tidak diperlukan
         for tag in soup.find_all([
             "script",
             "style",
@@ -1084,13 +1178,11 @@ def extract_article_content(
 
             tag.decompose()
 
-        # ====================================================
-        # 6. AMBIL ARTICLE
-        # ====================================================
+        # ================================================
+        # 5. AMBIL ISI ARTIKEL
+        # ================================================
 
-        article = soup.find(
-            "article"
-        )
+        article = soup.find("article")
 
         if article:
 
@@ -1101,9 +1193,7 @@ def extract_article_content(
 
         else:
 
-            paragraphs = soup.find_all(
-                "p"
-            )
+            paragraphs = soup.find_all("p")
 
             text = " ".join(
                 p.get_text(
@@ -1113,29 +1203,26 @@ def extract_article_content(
                 for p in paragraphs
             )
 
-        # ====================================================
-        # 7. CLEAN
-        # ====================================================
+        # ================================================
+        # 6. CLEANING
+        # ================================================
 
-        text = clean_text(
-            text
-        )
+        text = clean_text(text)
 
-        # ====================================================
-        # 8. VALIDASI
-        # ====================================================
+        # ================================================
+        # 7. VALIDASI
+        # ================================================
 
         if len(text) < 100:
 
             print(
-                "Isi artikel terlalu pendek."
+                f"Isi terlalu pendek: "
+                f"{len(text)} karakter"
             )
 
             return ""
 
-        return text[
-            :MAX_CONTENT_LENGTH
-        ]
+        return text[:MAX_CONTENT_LENGTH]
 
     except Exception as e:
 
@@ -1153,8 +1240,12 @@ if st.button(
     use_container_width=True
 ):
 
+    # ========================================================
+    # 1. CARI BERITA
+    # ========================================================
+
     with st.spinner(
-        "Mencari berita..."
+        "🔎 Mencari berita dari Google News..."
     ):
 
         test_articles = search_news_rss(
@@ -1162,11 +1253,19 @@ if st.button(
             max_results=3
         )
 
+    # ========================================================
+    # 2. JIKA TIDAK ADA BERITA
+    # ========================================================
+
     if not test_articles:
 
         st.error(
             "❌ Google News tidak mengembalikan berita."
         )
+
+    # ========================================================
+    # 3. JIKA BERITA DITEMUKAN
+    # ========================================================
 
     else:
 
@@ -1175,60 +1274,120 @@ if st.button(
             f"{len(test_articles)} berita."
         )
 
+        # ====================================================
+        # LOOP SETIAP BERITA
+        # ====================================================
+
         for i, item in enumerate(
             test_articles
         ):
 
             st.markdown(
-                f"### Berita {i + 1}"
+                f"## 📰 Berita {i + 1}"
+            )
+
+            # ------------------------------------------------
+            # JUDUL
+            # ------------------------------------------------
+
+            title = item.get(
+                "Judul Berita",
+                ""
             )
 
             st.write(
-                item["Judul Berita"]
+                f"**Judul:** {title}"
             )
 
-            st.caption(
-                f"Media: {item['Media']}"
+            # ------------------------------------------------
+            # MEDIA
+            # ------------------------------------------------
+
+            media = item.get(
+                "Media",
+                ""
+            )
+
+            st.write(
+                f"**Media:** {media}"
+            )
+
+            # ------------------------------------------------
+            # URL GOOGLE NEWS
+            # ------------------------------------------------
+
+            google_url = item.get(
+                "Link Berita",
+                ""
+            )
+
+            st.write(
+                "**URL dari Google News:**"
             )
 
             st.code(
-                item["Link Berita"]
+                google_url
             )
 
-            # --------------------------------------------
-            # AMBIL ISI
-            # --------------------------------------------
+            # =================================================
+            # 4. AMBIL ISI ARTIKEL
+            # =================================================
 
             with st.spinner(
-                f"Mengambil isi berita {i + 1}..."
+                f"🔎 Mencari URL asli dan "
+                f"mengambil artikel {i + 1}..."
             ):
 
                 content = (
                     extract_article_content(
-                        item["Link Berita"]
+                        url=google_url,
+                        title=title,
+                        media=media
                     )
                 )
+
+            # =================================================
+            # 5. HASIL BERHASIL
+            # =================================================
 
             if content:
 
                 st.success(
-                    f"✅ Isi artikel berhasil "
-                    f"({len(content)} karakter)"
+                    f"✅ Isi artikel berhasil diambil "
+                    f"({len(content):,} karakter)."
                 )
 
+                # ---------------------------------------------
+                # TAMPILKAN ISI ARTIKEL
+                # ---------------------------------------------
+
                 st.text_area(
-                    f"Isi artikel {i + 1}",
+                    f"📄 Isi Artikel {i + 1}",
                     content,
-                    height=250,
-                    key=f"article_{i}"
+                    height=300,
+                    key=f"article_content_{i}"
                 )
+
+            # =================================================
+            # 6. HASIL GAGAL
+            # =================================================
 
             else:
 
-                st.warning(
-                    "⚠️ Isi artikel tidak berhasil "
-                    "diambil dari sumber ini."
+                st.error(
+                    "❌ Isi artikel tidak berhasil diambil."
                 )
+
+                st.info(
+                    "Sistem gagal mendapatkan isi artikel "
+                    "dari URL tersebut."
+                )
+
+            # =================================================
+            # PEMBATAS
+            # =================================================
+
+            st.divider()
 # ============================================================
 # 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
 # ============================================================
