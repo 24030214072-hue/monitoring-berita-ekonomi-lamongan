@@ -1,8 +1,7 @@
 streamlit
 pandas
-google-genai
-python-dotenv
-playwright
-beautifulsoup4
 requests
 feedparser
+beautifulsoup4
+playwright
+google-genai
