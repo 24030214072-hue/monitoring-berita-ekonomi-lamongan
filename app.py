@@ -1,4 +1,3 @@
-import os
 import re
 import time
 import json
@@ -20,6 +19,9 @@ from bs4 import BeautifulSoup
 import plotly.express as px
 from google import genai
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
+
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 
 # ============================================================
@@ -841,26 +843,33 @@ def extract_article_content(url):
 
     try:
 
-        # ----------------------------------------------------
-        # 1. RESOLVE GOOGLE NEWS
-        # ----------------------------------------------------
+        def resolve_google_news_url(url):
 
-        real_url = resolve_google_news_url(
-            url
-        )
+    if not url:
+        return ""
 
-        if not real_url:
+    if "news.google.com" not in url:
+        return url
 
-            print(
-                "URL artikel asli tidak ditemukan."
-            )
+    try:
 
-            return ""
+        from gnews.utils.utils import resolve_url
+
+        real_url = resolve_url(url)
+
+        if (
+            real_url
+            and "news.google.com" not in real_url
+        ):
+            return real_url
+
+    except Exception as e:
 
         print(
-            f"URL asli: {real_url}"
+            f"Gagal resolve Google News URL: {e}"
         )
 
+    return ""
         # ----------------------------------------------------
         # 2. REQUEST ARTIKEL ASLI
         # ----------------------------------------------------
@@ -967,12 +976,8 @@ def extract_article_content(url):
         )
 
         return ""
-# ============================================================
-# TEST RESOLVE + ARTICLE
-# ============================================================
-
 if st.button(
-    "🧪 Test Isi Artikel"
+    "🧪 Test Google News URL"
 ):
 
     test_articles = search_news_rss(
@@ -995,17 +1000,19 @@ if st.button(
         )
 
         with st.spinner(
-            "Mencari URL artikel asli..."
+            "Resolving URL..."
         ):
 
-            real_url = resolve_google_news_url(
-                google_url
+            real_url = (
+                resolve_google_news_url(
+                    google_url
+                )
             )
 
         if real_url:
 
             st.success(
-                "✅ URL artikel asli berhasil ditemukan!"
+                "✅ URL artikel asli ditemukan!"
             )
 
             st.write(
@@ -1016,41 +1023,17 @@ if st.button(
                 real_url
             )
 
-            with st.spinner(
-                "Mengambil isi artikel..."
-            ):
-
-                content = (
-                    extract_article_content(
-                        real_url
-                    )
-                )
-
-            if content:
-
-                st.success(
-                    f"✅ Isi artikel berhasil diambil "
-                    f"({len(content)} karakter)."
-                )
-
-                st.text_area(
-                    "Isi Artikel",
-                    content,
-                    height=400
-                )
-
-            else:
-
-                st.warning(
-                    "⚠️ URL asli ditemukan, "
-                    "tetapi isi artikel tidak berhasil diambil."
-                )
-
         else:
 
             st.error(
-                "❌ URL artikel asli tidak berhasil ditemukan."
+                "❌ URL artikel asli tidak ditemukan."
             )
+
+    else:
+
+        st.warning(
+            "⚠️ Tidak ada berita ditemukan."
+        )
     
 # ============================================================
 # KONFIGURASI GEMINI AI
