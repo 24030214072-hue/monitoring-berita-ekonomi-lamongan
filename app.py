@@ -1561,142 +1561,7 @@ def search_news_rss(topic, max_results=8):
     return articles
 
 
-# ============================================================
-# TEST NEWS PIPELINE
-# ============================================================
 
-if st.button(
-    "🧪 Test News Pipeline",
-    use_container_width=True
-):
-
-    with st.spinner(
-        "🔎 Mencari berita..."
-    ):
-
-        test_articles = search_news_rss(
-            "Lamongan ekonomi",
-            max_results=3
-        )
-
-    if not test_articles:
-
-        st.error(
-            "❌ Google News tidak menemukan berita."
-        )
-
-    else:
-
-        st.success(
-            f"✅ Google News menemukan "
-            f"{len(test_articles)} berita."
-        )
-
-        for i, item in enumerate(
-            test_articles
-        ):
-
-            st.markdown(
-                f"## 📰 Berita {i + 1}"
-            )
-
-            title = item.get(
-                "Judul Berita",
-                ""
-            )
-
-            media = item.get(
-                "Media",
-                ""
-            )
-
-            google_url = item.get(
-                "Link Berita",
-                ""
-            )
-
-            st.write(
-                f"**Judul:** {title}"
-            )
-
-            st.write(
-                f"**Media:** {media}"
-            )
-
-            st.write(
-                "**URL Google News:**"
-            )
-
-            st.code(
-                google_url
-            )
-
-            # =================================================
-            # AMBIL ARTIKEL
-            # =================================================
-
-            with st.spinner(
-                "🔎 Mencari URL artikel asli..."
-            ):
-
-                real_url, content = get_article_content(
-                    title=title,
-                    media=media,
-                    google_url=google_url
-                )
-        
-
-            # =================================================
-            # URL ASLI
-            # =================================================
-
-            if real_url:
-
-                st.success(
-                    "✅ URL artikel asli ditemukan!"
-                )
-
-                st.write(
-                    "**URL Artikel Asli:**"
-                )
-
-                st.code(
-                    real_url
-                )
-
-            else:
-
-                st.error(
-                    "❌ URL artikel asli tidak ditemukan."
-                )
-
-            # =================================================
-            # ISI ARTIKEL
-            # =================================================
-
-            if content:
-
-                st.success(
-                    f"✅ Isi artikel berhasil "
-                    f"diambil "
-                    f"({len(content):,} karakter)"
-                )
-
-                st.text_area(
-                    f"📄 Isi Artikel {i + 1}",
-                    content,
-                    height=300,
-                    key=f"article_{i}"
-                )
-
-            else:
-
-                st.warning(
-                    "⚠️ URL ditemukan atau dicari, "
-                    "tetapi isi artikel gagal diambil."
-                )
-
-            st.divider()
 # ============================================================
 # GEMINI AI CONFIGURATION
 # ============================================================
@@ -2068,568 +1933,400 @@ def process_single_news(item):
 
     return result
 # ============================================================
-# TEST INTEGRASI BERITA + GEMINI
-# ============================================================
-
-st.divider()
-
-st.subheader(
-    "🧪 Test Integrasi Berita + Gemini"
-)
-
-test_title = st.text_input(
-    "Judul berita",
-    value=(
-        "MegPreneur 2026 Dorong Wirausaha "
-        "Muda Lamongan Naik Kelas"
-    ),
-    key="integration_title"
-)
-
-test_content = st.text_area(
-    "Isi berita",
-    value="""
-Program MegPreneur 2026 di Kabupaten Lamongan
-mendorong wirausaha muda untuk meningkatkan
-kapasitas usaha. Program tersebut memberikan
-pendampingan kepada pelaku UMKM agar dapat
-mengembangkan bisnis dan memperluas pasar.
-Pemerintah daerah juga memperkuat ekosistem
-kewirausahaan di Kabupaten Lamongan.
-""",
-    height=250,
-    key="integration_content"
-)
-
-if st.button(
-    "🚀 Proses Berita dengan Gemini",
-    use_container_width=True
-):
-
-    test_item = {
-
-        "Judul Berita":
-            test_title,
-
-        "Isi Berita":
-            test_content,
-
-        "Media":
-            "Test",
-
-        "Link Berita":
-            ""
-    }
-
-    with st.spinner(
-        "🤖 Gemini sedang menganalisis..."
-    ):
-
-        processed = process_single_news(
-            test_item
-        )
-
-    st.success(
-        "✅ Berita berhasil diproses"
-    )
-
-    st.write(
-        "### Hasil Analisis"
-    )
-
-    st.write(
-        "**Ekonomi:**",
-        processed["Ekonomi"]
-    )
-
-    st.write(
-        "**Isu Ekonomi:**",
-        processed["Isu Ekonomi"]
-    )
-
-    st.write(
-        "**Sektor:**",
-        processed["Sektor"]
-    )
-
-    st.write(
-        "**Ringkasan:**",
-        processed["Ringkasan Berita"]
-    )
-
-    st.write(
-        "**Alasan:**",
-        processed["Alasan AI"]
-    )
-# ============================================================
-# 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
-# ============================================================
-
-if "data" not in st.session_state:
-    if DATA_FILE.exists():
-        try:
-            st.session_state.data = pd.read_csv(DATA_FILE)
-        except Exception:
-            st.session_state.data = create_sample_data()
-    else:
-        st.session_state.data = create_sample_data()
-
-with st.sidebar:
-    if BPS_LOGO.exists():
-        st.image(BPS_LOGO_URL, width=120)
-
-    st.title("Dashboard Control")
-
-    # ========================================================
-# STATUS GEMINI AI
-# ========================================================
-
-if gemini_client is not None:
-    st.success("🟢 Gemini AI: Active")
-else:
-    st.error("🔴 Gemini AI: Offline (Cek Secrets)")
-
-st.divider()
-
-st.subheader("⚙️ Aksi")
-
-# ============================================================
 # FETCH AND PROCESS NEWS
 # ============================================================
 
 def fetch_and_process_news():
-    """
-    Mengambil, memproses, menganalisis, dan mengembalikan
-    berita ekonomi dalam bentuk DataFrame.
-    """
 
-    import pandas as pd
+    all_articles = []
 
-    all_news = []
+    # ========================================================
+    # TOPIK PENCARIAN
+    # ========================================================
 
-    try:
-        # ----------------------------------------------------
-        # 1. AMBIL BERITA
-        # ----------------------------------------------------
+    search_topics = [
+        "Lamongan ekonomi",
+        "Kabupaten Lamongan ekonomi",
+        "Pemkab Lamongan ekonomi",
+        "Lamongan pertanian",
+        "Lamongan perikanan",
+        "Lamongan UMKM",
+        "Lamongan perdagangan",
+        "Lamongan industri",
+        "Lamongan investasi",
+        "Lamongan pembangunan"
+    ]
 
-        st.info("🔎 Mengambil berita terbaru...")
+    # ========================================================
+    # AMBIL BERITA DARI GOOGLE NEWS
+    # ========================================================
 
-        for topic in SEARCH_TOPICS:
+    for topic in search_topics:
 
-            try:
-                articles = get_news_from_rss(topic)
+        try:
 
-                if articles:
-                    all_news.extend(articles)
-
-            except Exception as e:
-                print(
-                    f"Gagal mengambil berita untuk "
-                    f"{topic}: {e}"
-                )
-
-        # ----------------------------------------------------
-        # 2. JIKA TIDAK ADA BERITA
-        # ----------------------------------------------------
-
-        if not all_news:
-            st.warning(
-                "⚠️ Tidak ada berita yang berhasil ditemukan."
+            articles = search_news_rss(
+                topic,
+                max_results=5
             )
 
-            return pd.DataFrame()
+            if articles:
 
-        # ----------------------------------------------------
-        # 3. BUAT DATAFRAME
-        # ----------------------------------------------------
+                all_articles.extend(
+                    articles
+                )
 
-        df = pd.DataFrame(all_news)
+        except Exception as e:
 
-        if df.empty:
-            return pd.DataFrame()
+            print(
+                f"Error pencarian {topic}: {e}"
+            )
 
-        # ----------------------------------------------------
-        # 4. NORMALISASI KOLOM
-        # ----------------------------------------------------
+    # ========================================================
+    # CEK HASIL
+    # ========================================================
 
-        rename_map = {
-            "title": "Judul Berita",
-            "judul": "Judul Berita",
-            "headline": "Judul Berita",
+    if not all_articles:
 
-            "link": "Link Berita",
-            "url": "Link Berita",
-
-            "source": "Media",
-            "media": "Media",
-
-            "published": "Tanggal Berita",
-            "date": "Tanggal Berita",
-
-            "summary": "Ringkasan Berita",
-            "description": "Ringkasan Berita"
-        }
-
-        df.rename(
-            columns=rename_map,
-            inplace=True
+        st.warning(
+            "⚠️ Tidak ada berita yang ditemukan."
         )
 
-        # ----------------------------------------------------
-        # 5. PASTIKAN KOLOM ADA
-        # ----------------------------------------------------
+        return pd.DataFrame()
 
-        for col in [
-            "Judul Berita",
+    # ========================================================
+    # HAPUS DUPLIKAT URL
+    # ========================================================
+
+    unique_articles = {}
+
+    for article in all_articles:
+
+        url = article.get(
             "Link Berita",
+            ""
+        ).strip()
+
+        title = article.get(
+            "Judul Berita",
+            ""
+        ).strip()
+
+        key = url or title
+
+        if key and key not in unique_articles:
+
+            unique_articles[key] = article
+
+    articles = list(
+        unique_articles.values()
+    )
+
+    print(
+        f"Jumlah kandidat berita: "
+        f"{len(articles)}"
+    )
+
+    # ========================================================
+    # BATASI JUMLAH BERITA
+    # ========================================================
+
+    articles = articles[:30]
+
+    processed_articles = []
+
+    # ========================================================
+    # PROSES SATU PER SATU
+    # ========================================================
+
+    progress = st.progress(0)
+
+    status = st.empty()
+
+    total = len(articles)
+
+    for index, article in enumerate(
+        articles
+    ):
+
+        title = article.get(
+            "Judul Berita",
+            ""
+        )
+
+        status.text(
+            f"Memproses berita "
+            f"{index + 1}/{total}: "
+            f"{title[:80]}"
+        )
+
+        # ----------------------------------------------------
+        # AMBIL ISI ARTIKEL
+        # ----------------------------------------------------
+
+        content = ""
+
+        google_url = article.get(
+            "Link Berita",
+            ""
+        )
+
+        media = article.get(
             "Media",
-            "Tanggal Berita"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-
-        # ----------------------------------------------------
-        # 6. BERSIHKAN DATA
-        # ----------------------------------------------------
-
-        df["Judul Berita"] = (
-            df["Judul Berita"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
+            ""
         )
 
-        df["Link Berita"] = (
-            df["Link Berita"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
+        # Coba fungsi yang sudah dibuat
+        try:
 
-        df["Media"] = (
-            df["Media"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
-
-        df = df[
-            df["Judul Berita"] != ""
-        ].copy()
-
-        # ----------------------------------------------------
-        # 7. HAPUS URL DUPLIKAT
-        # ----------------------------------------------------
-
-        df = df.drop_duplicates(
-            subset=["Link Berita"],
-            keep="first"
-        )
-
-        # ----------------------------------------------------
-        # 8. AMBIL ISI ARTIKEL
-        # ----------------------------------------------------
-
-        contents = []
-
-        progress = st.progress(0)
-
-        total = len(df)
-
-        for i, (_, row) in enumerate(
-            df.iterrows()
-        ):
-
-            url = row["Link Berita"]
-
-            try:
-
-                content = extract_article_content(
-                    url
+            real_url, content = (
+                get_article_content(
+                    title,
+                    media
                 )
+            )
 
-            except Exception as e:
+        except Exception as e:
 
-                print(
-                    f"Gagal mengambil isi artikel: {e}"
-                )
+            print(
+                f"Gagal mengambil artikel: {e}"
+            )
 
-                content = ""
+            real_url = ""
+            content = ""
 
-            if not content:
+        # ----------------------------------------------------
+        # SIMPAN URL ASLI
+        # ----------------------------------------------------
 
-                content = str(
-                    row.get(
-                        "Ringkasan Berita",
-                        ""
-                    )
-                )
+        if real_url:
 
-            contents.append(
-                clean_text(content)
+            article["Link Berita"] = (
+                real_url
+            )
+
+        # ----------------------------------------------------
+        # JIKA ISI ARTIKEL TIDAK ADA
+        # GUNAKAN RINGKASAN RSS
+        # ----------------------------------------------------
+
+        if not content:
+
+           content = article.get(
+               "Ringkasan",
+               ""
+           )
+
+        if not content:
+
+           content = article.get(
+               "Judul Berita",
+               ""
+           )
+
+        article["Isi Berita"] = content
+
+        # ----------------------------------------------------
+        # JIKA TIDAK ADA ISI
+        # ----------------------------------------------------
+
+        if not content:
+
+            print(
+                f"SKIP: Isi kosong - {title}"
             )
 
             progress.progress(
-                (i + 1) / total
+                int(
+                    ((index + 1) / total)
+                    * 100
+                ) / 100
             )
 
-        progress.empty()
-
-        df["Isi Artikel"] = contents
+            continue
 
         # ----------------------------------------------------
-        # 9. BUANG ARTIKEL TANPA ISI
+        # GEMINI
         # ----------------------------------------------------
 
-        df = df[
-            df["Isi Artikel"].str.len() >= 100
-        ].copy()
+        try:
 
-        if df.empty:
-
-            st.warning(
-                "⚠️ Isi artikel tidak berhasil diperoleh."
+            processed = process_single_news(
+                article
             )
 
-            return pd.DataFrame()
+        except Exception as e:
 
-        # ----------------------------------------------------
-        # 10. ANALISIS GEMINI
-        # ----------------------------------------------------
-
-        if gemini_client is None:
-
-            st.error(
-                "🔴 Gemini AI tidak aktif."
+            print(
+                f"Gemini gagal: {e}"
             )
 
-            return pd.DataFrame()
+            progress.progress(
+                int(
+                    ((index + 1) / total)
+                    * 100
+                ) / 100
+            )
 
-        hasil_ai = []
+            continue
 
-        progress_ai = st.progress(0)
+        # ----------------------------------------------------
+        # HANYA SIMPAN BERITA EKONOMI
+        # ----------------------------------------------------
 
-        total_ai = len(df)
-
-        for i, (_, row) in enumerate(
-            df.iterrows()
+        if processed.get(
+            "Ekonomi",
+            False
         ):
 
-            try:
-
-                hasil = analyze_news_with_ai(
-                    row["Judul Berita"],
-                    row["Isi Artikel"][:MAX_CONTENT_FOR_AI]
-                )
-
-                if not isinstance(
-                    hasil,
-                    dict
-                ):
-                    hasil = {}
-
-                ekonomi = hasil.get(
-                    "ekonomi",
-                    False
-                )
-
-                if isinstance(
-                    ekonomi,
-                    str
-                ):
-                    ekonomi = (
-                        ekonomi.lower()
-                        in [
-                            "true",
-                            "ya",
-                            "yes",
-                            "1"
-                        ]
-                    )
-
-                hasil_ai.append({
-                    "ekonomi": bool(
-                        ekonomi
-                    ),
-
-                    "isu_ekonomi": str(
-                        hasil.get(
-                            "isu_ekonomi",
-                            ""
-                        )
-                    ).strip(),
-
-                    "sektor": str(
-                        hasil.get(
-                            "sektor",
-                            ""
-                        )
-                    ).strip(),
-
-                    "ringkasan": str(
-                        hasil.get(
-                            "ringkasan",
-                            ""
-                        )
-                    ).strip()
-                })
-
-            except Exception as e:
-
-                print(
-                    f"Gemini error: {e}"
-                )
-
-                hasil_ai.append({
-                    "ekonomi": False,
-                    "isu_ekonomi": "",
-                    "sektor": "",
-                    "ringkasan": ""
-                })
-
-            progress_ai.progress(
-                (i + 1) / total_ai
+            processed_articles.append(
+                processed
             )
 
-        progress_ai.empty()
-
         # ----------------------------------------------------
-        # 11. MASUKKAN HASIL GEMINI
+        # PROGRESS
         # ----------------------------------------------------
 
-        ai_df = pd.DataFrame(
-            hasil_ai,
-            index=df.index
+        progress.progress(
+            (index + 1) / total
         )
 
-        df["Ekonomi"] = ai_df[
-            "ekonomi"
-        ]
+    status.empty()
+    progress.empty()
 
-        df["Isu Ekonomi"] = ai_df[
-            "isu_ekonomi"
-        ]
+    # ========================================================
+    # CEK HASIL GEMINI
+    # ========================================================
 
-        df["Sektor"] = ai_df[
-            "sektor"
-        ]
+    if not processed_articles:
 
-        df["Ringkasan Berita"] = ai_df[
-            "ringkasan"
-        ]
-
-        # ----------------------------------------------------
-        # 12. HANYA BERITA EKONOMI
-        # ----------------------------------------------------
-
-        df = df[
-            df["Ekonomi"] == True
-        ].copy()
-
-        if df.empty:
-
-            st.warning(
-                "⚠️ Tidak ditemukan berita ekonomi."
-            )
-
-            return pd.DataFrame()
-
-        # ----------------------------------------------------
-        # 13. DEDUPLIKASI BERDASARKAN JUDUL
-        # ----------------------------------------------------
-
-        df["_judul_normalized"] = (
-            df["Judul Berita"]
-            .apply(normalize_text)
+        st.warning(
+            "⚠️ Tidak ada berita ekonomi "
+            "yang berhasil diproses."
         )
-
-        # Artikel yang lebih panjang
-        # dianggap lebih lengkap
-        df["_panjang"] = (
-            df["Isi Artikel"]
-            .str.len()
-        )
-
-        df = df.sort_values(
-            "_panjang",
-            ascending=False
-        )
-
-        df = df.drop_duplicates(
-            subset="_judul_normalized",
-            keep="first"
-        )
-
-        # ----------------------------------------------------
-        # 14. TANGGAL
-        # ----------------------------------------------------
-
-        df["Tanggal Berita"] = pd.to_datetime(
-            df["Tanggal Berita"],
-            errors="coerce"
-        )
-
-        # ----------------------------------------------------
-        # 15. KOLOM AKHIR
-        # ----------------------------------------------------
-
-        final_columns = [
-            "Tanggal Berita",
-            "Media",
-            "Judul Berita",
-            "Isu Ekonomi",
-            "Sektor",
-            "Ringkasan Berita",
-            "Link Berita"
-        ]
-
-        for col in final_columns:
-
-            if col not in df.columns:
-                df[col] = ""
-
-        df = df[
-            final_columns
-        ].copy()
-
-        # ----------------------------------------------------
-        # 16. URUTKAN
-        # ----------------------------------------------------
-
-        df = df.sort_values(
-            "Tanggal Berita",
-            ascending=False
-        )
-
-        df.reset_index(
-            drop=True,
-            inplace=True
-        )
-
-        st.success(
-            f"✅ Berhasil memproses "
-            f"{len(df)} berita ekonomi."
-        )
-
-        return df
-
-    except Exception as e:
-
-        st.error(
-            "❌ Gagal memproses berita."
-        )
-
-        st.exception(e)
 
         return pd.DataFrame()
+
+    # ========================================================
+    # BUAT DATAFRAME
+    # ========================================================
+
+    df = pd.DataFrame(
+        processed_articles
+    )
+
+    # ========================================================
+    # PASTIKAN KOLOM
+    # ========================================================
+
+    required_columns = [
+
+        "Tanggal Berita",
+        "Media",
+        "Judul Berita",
+        "Isu Ekonomi",
+        "Sektor",
+        "Ringkasan Berita",
+        "Link Berita"
+    ]
+
+    for column in required_columns:
+
+        if column not in df.columns:
+
+            df[column] = ""
+
+    # ========================================================
+    # HAPUS DUPLIKAT JUDUL
+    # ========================================================
+
+    df["_judul_normalized"] = (
+        df["Judul Berita"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+        .str.replace(
+            r"[^a-z0-9\s]",
+            "",
+            regex=True
+        )
+        .str.replace(
+            r"\s+",
+            " ",
+            regex=True
+        )
+        .str.strip()
+    )
+
+    df = df.drop_duplicates(
+        subset=[
+            "_judul_normalized"
+        ],
+        keep="first"
+    )
+
+    df = df.drop(
+        columns=[
+            "_judul_normalized"
+        ],
+        errors="ignore"
+    )
+
+    # ========================================================
+    # RESET INDEX
+    # ========================================================
+
+    df = df.reset_index(
+    drop=True
+)
+
+# ========================================================
+# DEDUPLIKASI BERITA
+# ========================================================
+
+before_dedup = len(df)
+
+df = remove_duplicate_news(
+    df,
+    similarity_threshold=0.65
+)
+
+after_dedup = len(df)
+
+print(
+    f"Deduplikasi: "
+    f"{before_dedup} → {after_dedup} berita"
+)
+
+return df
+# ============================================================
+# AMBIL BERITA TERBARU
+# ============================================================
+
 if st.button(
     "🔄 Ambil Berita Terbaru",
     use_container_width=True
 ):
-    new_data = fetch_and_process_news()
 
-    if new_data is not None and not new_data.empty:
-        st.session_state.data = new_data.copy()
+    with st.spinner(
+        "🔎 Mengambil dan menganalisis berita..."
+    ):
+
+        new_data = fetch_and_process_news()
+
+    if (
+        new_data is not None
+        and not new_data.empty
+    ):
+        st.info(
+            f"📊 {len(new_data)} berita ekonomi "
+            f"unik berhasil disimpan setelah "
+            f"proses deduplikasi."
+        )
+
+        st.session_state.data = (
+            new_data
+        )
 
         new_data.to_csv(
             DATA_FILE,
@@ -2638,41 +2335,338 @@ if st.button(
         )
 
         st.success(
-            f"✅ {len(new_data)} berita berhasil diperbarui!"
+            f"✅ Berhasil mendapatkan "
+            f"{len(new_data)} berita ekonomi."
         )
 
         st.rerun()
 
     else:
+
         st.warning(
-            "⚠️ Tidak ada berita baru yang berhasil diproses."
+            "⚠️ Tidak ada berita ekonomi "
+            "yang berhasil diproses."
         )
-
-
-# ========================================================
-# RESET & BERSIHKAN DATA
-# ========================================================
+# ============================================================
+# RESET DATA
+# ============================================================
 
 if st.button(
     "🗑️ Reset & Bersihkan Data",
     use_container_width=True
 ):
-    try:
-        st.session_state.data = create_sample_data()
 
-        if DATA_FILE.exists():
-            DATA_FILE.unlink()
+    st.session_state.data = (
+        create_sample_data()
+    )
 
-        st.success("🗑️ Data berhasil direset.")
+    if DATA_FILE.exists():
 
-        st.rerun()
+        DATA_FILE.unlink()
 
-    except Exception as e:
-        st.error("❌ Gagal mereset data.")
-        st.exception(e)
+    st.success(
+        "✅ Data berhasil direset."
+    )
+    st.rerun()
+# ============================================================
+# NORMALISASI TEKS UNTUK DEDUPLIKASI
+# ============================================================
 
-    st.divider()
-    st.subheader("🔎 Filter Data")
+def normalize_for_similarity(text):
+
+    if not text:
+        return ""
+
+    text = clean_text(text)
+
+    text = text.lower()
+
+    # Hilangkan tanda baca
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        text
+    )
+
+    # Pecah menjadi kata
+    words = text.split()
+
+    # Buang kata terlalu pendek
+    words = [
+        word
+        for word in words
+        if len(word) > 2
+    ]
+
+    return " ".join(words)
+# ============================================================
+# JACCARD SIMILARITY
+# ============================================================
+
+def calculate_jaccard_similarity(
+    text1,
+    text2
+):
+
+    text1 = normalize_for_similarity(
+        text1
+    )
+
+    text2 = normalize_for_similarity(
+        text2
+    )
+
+    if not text1 or not text2:
+
+        return 0.0
+
+    words1 = set(
+        text1.split()
+    )
+
+    words2 = set(
+        text2.split()
+    )
+
+    if not words1 or not words2:
+
+        return 0.0
+
+    intersection = (
+        words1 & words2
+    )
+
+    union = (
+        words1 | words2
+    )
+
+    if not union:
+
+        return 0.0
+
+    return (
+        len(intersection)
+        /
+        len(union)
+    )
+# ============================================================
+# NILAI KELENGKAPAN ARTIKEL
+# ============================================================
+
+def article_completeness_score(
+    article
+):
+
+    title = article.get(
+        "Judul Berita",
+        ""
+    )
+
+    content = article.get(
+        "Isi Berita",
+        ""
+    )
+
+    summary = article.get(
+        "Ringkasan Berita",
+        ""
+    )
+
+    # Isi artikel merupakan komponen utama
+    content_score = len(
+        clean_text(content)
+    )
+
+    # Judul juga diperhitungkan
+    title_score = len(
+        clean_text(title)
+    )
+
+    # Ringkasan menjadi tambahan
+    summary_score = len(
+        clean_text(summary)
+    )
+
+    score = (
+        content_score
+        +
+        (title_score * 0.2)
+        +
+        (summary_score * 0.2)
+    )
+
+    return score
+# ============================================================
+# DEDUPLIKASI BERITA BERDASARKAN ISI
+# ============================================================
+
+def remove_duplicate_news(
+    df,
+    similarity_threshold=0.65
+):
+
+    if df is None or df.empty:
+
+        return df
+
+    df = df.copy()
+
+    # --------------------------------------------------------
+    # Pastikan kolom tersedia
+    # --------------------------------------------------------
+
+    if "Isi Berita" not in df.columns:
+
+        df["Isi Berita"] = ""
+
+    if "Judul Berita" not in df.columns:
+
+        df["Judul Berita"] = ""
+
+    # --------------------------------------------------------
+    # Hitung kelengkapan
+    # --------------------------------------------------------
+
+    df["_completeness"] = (
+        df.apply(
+            article_completeness_score,
+            axis=1
+        )
+    )
+
+    # Artikel paling lengkap diletakkan
+    # di bagian atas
+    df = df.sort_values(
+        "_completeness",
+        ascending=False
+    ).reset_index(
+        drop=True
+    )
+
+    keep_indices = []
+
+    # --------------------------------------------------------
+    # Bandingkan artikel
+    # --------------------------------------------------------
+
+    for i in range(
+        len(df)
+    ):
+
+        current_index = i
+
+        current_content = (
+            df.iloc[i]["Isi Berita"]
+        )
+
+        current_title = (
+            df.iloc[i]["Judul Berita"]
+        )
+
+        is_duplicate = False
+
+        # --------------------------------------------
+        # Bandingkan dengan artikel yang sudah disimpan
+        # --------------------------------------------
+
+        for kept_index in keep_indices:
+
+            kept_content = (
+                df.iloc[
+                    kept_index
+                ]["Isi Berita"]
+            )
+
+            kept_title = (
+                df.iloc[
+                    kept_index
+                ]["Judul Berita"]
+            )
+
+            # ----------------------------------------
+            # Kemiripan isi
+            # ----------------------------------------
+
+            content_similarity = (
+                calculate_jaccard_similarity(
+                    current_content,
+                    kept_content
+                )
+            )
+
+            # ----------------------------------------
+            # Kemiripan judul
+            # ----------------------------------------
+
+            title_similarity = (
+                calculate_jaccard_similarity(
+                    current_title,
+                    kept_title
+                )
+            )
+
+            # ----------------------------------------
+            # Tentukan duplikat
+            # ----------------------------------------
+
+            if (
+                content_similarity
+                >= similarity_threshold
+                or
+                title_similarity
+                >= 0.80
+            ):
+
+                is_duplicate = True
+
+                print(
+                    "DUPLIKAT:",
+                    current_title,
+                    "≈",
+                    kept_title,
+                    "| content:",
+                    round(
+                        content_similarity,
+                        3
+                    ),
+                    "| title:",
+                    round(
+                        title_similarity,
+                        3
+                    )
+                )
+
+                break
+
+        # --------------------------------------------
+        # Jika bukan duplikat
+        # --------------------------------------------
+
+        if not is_duplicate:
+
+            keep_indices.append(
+                current_index
+            )
+
+    # --------------------------------------------------------
+    # Ambil artikel yang dipertahankan
+    # --------------------------------------------------------
+
+    result = df.iloc[
+        keep_indices
+    ].copy()
+
+    # Hapus kolom internal
+    result = result.drop(
+        columns=[
+            "_completeness"
+        ],
+        errors="ignore"
+    )
+
+    return result.reset_index(
+        drop=True
+    )
 
 df = st.session_state.data.copy()
 df["Tanggal Berita"] = pd.to_datetime(df["Tanggal Berita"], errors="coerce")
