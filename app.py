@@ -1698,6 +1698,342 @@ if st.button(
 
             st.divider()
 # ============================================================
+# GEMINI AI CONFIGURATION
+# ============================================================
+
+gemini_client = None
+
+try:
+
+    gemini_api_key = st.secrets["GEMINI_API_KEY"]
+
+    if gemini_api_key:
+
+        gemini_client = genai.Client(
+            api_key=gemini_api_key
+        )
+
+except Exception as e:
+
+    print(
+        "Gemini tidak aktif:",
+        e
+    )
+
+    gemini_client = None
+# ============================================================
+# 17 SEKTOR LAPANGAN USAHA BPS
+# ============================================================
+
+SEKTOR_BPS = [
+
+    "A - Pertanian, Kehutanan, dan Perikanan",
+
+    "B - Pertambangan dan Penggalian",
+
+    "C - Industri Pengolahan",
+
+    "D - Pengadaan Listrik dan Gas",
+
+    "E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang",
+
+    "F - Konstruksi",
+
+    "G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor",
+
+    "H - Transportasi dan Pergudangan",
+
+    "I - Penyediaan Akomodasi dan Makan Minum",
+
+    "J - Informasi dan Komunikasi",
+
+    "K - Jasa Keuangan dan Asuransi",
+
+    "L - Real Estat",
+
+    "M,N - Jasa Perusahaan",
+
+    "O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib",
+
+    "P - Jasa Pendidikan",
+
+    "Q - Jasa Kesehatan dan Kegiatan Sosial",
+
+    "R,S,T,U - Jasa Lainnya"
+]
+# ============================================================
+# PROMPT KLASIFIKASI BERITA
+# ============================================================
+
+AI_CLASSIFICATION_PROMPT = """
+Anda adalah analis berita ekonomi Kabupaten Lamongan.
+
+Tugas Anda adalah menganalisis isi berita secara menyeluruh.
+
+Jangan hanya menggunakan judul berita.
+Gunakan isi berita sebagai sumber utama.
+
+Tentukan:
+
+1. Apakah berita tersebut merupakan berita ekonomi?
+2. Jika ekonomi, tentukan satu isu ekonomi utama.
+3. Tentukan satu sektor lapangan usaha BPS yang paling sesuai.
+4. Buat ringkasan berita dalam bahasa Indonesia sebanyak 2-3 kalimat.
+5. Jika bukan berita ekonomi, jelaskan alasan singkatnya.
+
+DAFTAR SEKTOR BPS:
+
+A - Pertanian, Kehutanan, dan Perikanan
+B - Pertambangan dan Penggalian
+C - Industri Pengolahan
+D - Pengadaan Listrik dan Gas
+E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang
+F - Konstruksi
+G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor
+H - Transportasi dan Pergudangan
+I - Penyediaan Akomodasi dan Makan Minum
+J - Informasi dan Komunikasi
+K - Jasa Keuangan dan Asuransi
+L - Real Estat
+M,N - Jasa Perusahaan
+O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib
+P - Jasa Pendidikan
+Q - Jasa Kesehatan dan Kegiatan Sosial
+R,S,T,U - Jasa Lainnya
+
+ATURAN:
+
+- Gunakan isi artikel, bukan hanya judul.
+- Pilih hanya SATU sektor utama.
+- Pilih hanya SATU isu ekonomi utama.
+- Jangan membuat informasi yang tidak terdapat dalam artikel.
+- Jika informasi tidak cukup, gunakan "Tidak dapat ditentukan".
+- Ringkasan maksimal 80 kata.
+
+Keluarkan HANYA JSON dengan format:
+
+{
+    "ekonomi": true,
+    "isu_ekonomi": "...",
+    "sektor": "...",
+    "ringkasan": "...",
+    "alasan": "..."
+}
+"""
+# ============================================================
+# ANALISIS BERITA DENGAN GEMINI
+# ============================================================
+
+def analyze_news_with_ai(
+    title,
+    content
+):
+
+    # --------------------------------------------------------
+    # CEK GEMINI
+    # --------------------------------------------------------
+
+    if gemini_client is None:
+
+        return {
+            "ekonomi": False,
+            "isu_ekonomi": "",
+            "sektor": "",
+            "ringkasan": "",
+            "alasan":
+                "Gemini AI tidak aktif."
+        }
+
+    # --------------------------------------------------------
+    # CEK ISI
+    # --------------------------------------------------------
+
+    if not content:
+
+        return {
+            "ekonomi": False,
+            "isu_ekonomi": "",
+            "sektor": "",
+            "ringkasan": "",
+            "alasan":
+                "Isi artikel tidak tersedia."
+        }
+
+    try:
+
+        # Batasi isi agar tidak terlalu besar
+        article_content = content[
+            :7000
+        ]
+
+        prompt = f"""
+{AI_CLASSIFICATION_PROMPT}
+
+JUDUL BERITA:
+{title}
+
+ISI BERITA:
+{article_content}
+"""
+
+        # ----------------------------------------------------
+        # REQUEST GEMINI
+        # ----------------------------------------------------
+
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+
+        result_text = response.text.strip()
+
+        # ----------------------------------------------------
+        # BERSIHKAN MARKDOWN JSON
+        # ----------------------------------------------------
+
+        result_text = (
+            result_text
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
+        # ----------------------------------------------------
+        # PARSE JSON
+        # ----------------------------------------------------
+
+        result = json.loads(
+            result_text
+        )
+
+        # ----------------------------------------------------
+        # VALIDASI
+        # ----------------------------------------------------
+
+        return {
+
+            "ekonomi":
+                bool(
+                    result.get(
+                        "ekonomi",
+                        False
+                    )
+                ),
+
+            "isu_ekonomi":
+                str(
+                    result.get(
+                        "isu_ekonomi",
+                        ""
+                    )
+                ),
+
+            "sektor":
+                str(
+                    result.get(
+                        "sektor",
+                        ""
+                    )
+                ),
+
+            "ringkasan":
+                str(
+                    result.get(
+                        "ringkasan",
+                        ""
+                    )
+                ),
+
+            "alasan":
+                str(
+                    result.get(
+                        "alasan",
+                        ""
+                    )
+                )
+        }
+
+    except Exception as e:
+
+        print(
+            "ERROR Gemini:",
+            repr(e)
+        )
+
+        return {
+
+            "ekonomi": False,
+
+            "isu_ekonomi": "",
+
+            "sektor": "",
+
+            "ringkasan": "",
+
+            "alasan":
+                f"Gemini error: {e}"
+        }
+# ============================================================
+# TEST GEMINI AI
+# ============================================================
+
+st.divider()
+
+st.subheader(
+    "🤖 Test Gemini AI"
+)
+
+test_title = st.text_input(
+    "Judul Berita",
+    value=(
+        "MegPreneur 2026 Dorong "
+        "Wirausaha Muda Lamongan "
+        "Naik Kelas"
+    )
+)
+
+test_content = st.text_area(
+    "Isi Berita",
+    height=250,
+    value="""
+Program MegPreneur 2026 di Kabupaten Lamongan
+mendorong pelaku usaha muda untuk mengembangkan
+bisnis dan meningkatkan kapasitas usaha.
+Pemerintah daerah memperkuat ekosistem bisnis
+melalui pendampingan dan pengembangan UMKM.
+"""
+)
+
+if st.button(
+    "🤖 Analisis dengan Gemini",
+    use_container_width=True
+):
+
+    if gemini_client is None:
+
+        st.error(
+            "❌ Gemini AI belum aktif."
+        )
+
+    else:
+
+        with st.spinner(
+            "🤖 Gemini sedang menganalisis..."
+        ):
+
+            result = analyze_news_with_ai(
+                test_title,
+                test_content
+            )
+
+        st.success(
+            "✅ Analisis selesai"
+        )
+
+        st.json(
+            result
+        )
+# ============================================================
 # 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
 # ============================================================
 
