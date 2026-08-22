@@ -2278,27 +2278,27 @@ def fetch_and_process_news():
 
     df = df.reset_index(
     drop=True
-)
+    )
 
-# ========================================================
-# DEDUPLIKASI BERITA
-# ========================================================
+    # ========================================================
+    # DEDUPLIKASI BERITA
+    # ========================================================
 
-before_dedup = len(df)
+    before_dedup = len(df)
 
-df = remove_duplicate_news(
-    df,
-    similarity_threshold=0.65
-)
+    df = remove_duplicate_news(
+        df,
+        similarity_threshold=0.65
+    )
 
-after_dedup = len(df)
+    after_dedup = len(df)
 
-print(
-    f"Deduplikasi: "
-    f"{before_dedup} → {after_dedup} berita"
-)
+    print(
+        f"Deduplikasi: "
+        f"{before_dedup} → {after_dedup} berita"
+    )
 
-return df
+    return df
 # ============================================================
 # AMBIL BERITA TERBARU
 # ============================================================
