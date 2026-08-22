@@ -781,78 +781,7 @@ def resolve_google_news_url(url):
     if not url:
         return ""
 
-    # Kalau sudah URL media asli,
-    # langsung gunakan
-    if "news.google.com" not in url:
-        return url
-
-    try:
-
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-
-            browser = p.chromium.launch(
-                headless=True
-            )
-
-            page = browser.new_page(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) "
-                    "Chrome/151.0 Safari/537.36"
-                )
-            )
-
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=20000
-            )
-
-            # Tunggu proses redirect
-            page.wait_for_timeout(3000)
-
-            final_url = page.url
-
-            browser.close()
-
-            # Pastikan bukan masih Google News
-            if (
-                final_url
-                and "news.google.com" not in final_url
-            ):
-                return final_url
-
-    except Exception as e:
-
-        print(
-            f"Gagal resolve Google News URL: {e}"
-        )
-
-    return ""
-# ============================================================
-# EXTRACT ARTICLE CONTENT
-# ============================================================
-
-def extract_article_content(url):
-
-    if not url:
-        return ""
-
-    try:
-
-# ============================================================
-# RESOLVE GOOGLE NEWS URL
-# ============================================================
-
-def resolve_google_news_url(url):
-
-    if not url:
-        return ""
-
-    # Jika URL bukan dari Google News,
+    # Jika bukan URL Google News,
     # langsung gunakan URL tersebut
     if "news.google.com" not in url:
         return url
@@ -876,17 +805,52 @@ def resolve_google_news_url(url):
         )
 
     return ""
+# ============================================================
+# EXTRACT ARTICLE CONTENT
+# ============================================================
+
+def extract_article_content(url):
+
+    if not url:
+        return ""
+
+    try:
+
+        # ----------------------------------------------------
+        # 1. RESOLVE GOOGLE NEWS URL
+        # ----------------------------------------------------
+
+        real_url = resolve_google_news_url(
+            url
+        )
+
+        if not real_url:
+
+            print(
+                "URL artikel asli tidak ditemukan."
+            )
+
+            return ""
+
+        print(
+            f"URL asli: {real_url}"
+        )
+
         # ----------------------------------------------------
         # 2. REQUEST ARTIKEL ASLI
         # ----------------------------------------------------
 
         headers = {
-            "User-Agent":
+            "User-Agent": (
                 "Mozilla/5.0 "
                 "(Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
                 "Chrome/151.0 Safari/537.36"
+            ),
+            "Accept-Language": (
+                "id-ID,id;q=0.9,en;q=0.8"
+            )
         }
 
         response = requests.get(
@@ -914,10 +878,10 @@ def resolve_google_news_url(url):
         )
 
         # ----------------------------------------------------
-        # 4. HAPUS ELEMEN TIDAK PERLU
+        # 4. HAPUS ELEMEN YANG TIDAK DIPERLUKAN
         # ----------------------------------------------------
 
-        for tag in soup([
+        for tag in soup.find_all([
             "script",
             "style",
             "nav",
@@ -931,7 +895,7 @@ def resolve_google_news_url(url):
             tag.decompose()
 
         # ----------------------------------------------------
-        # 5. PRIORITAS ARTICLE
+        # 5. AMBIL ISI ARTIKEL
         # ----------------------------------------------------
 
         article = soup.find(
@@ -968,7 +932,7 @@ def resolve_google_news_url(url):
         )
 
         # ----------------------------------------------------
-        # 7. BATASI PANJANG
+        # 7. BATASI PANJANG ARTIKEL
         # ----------------------------------------------------
 
         return text[
@@ -982,6 +946,10 @@ def resolve_google_news_url(url):
         )
 
         return ""
+# ============================================================
+# TEST GOOGLE NEWS URL
+# ============================================================
+
 if st.button(
     "🧪 Test Google News URL"
 ):
@@ -1029,6 +997,40 @@ if st.button(
                 real_url
             )
 
+            # --------------------------------------------
+            # TEST ISI ARTIKEL
+            # --------------------------------------------
+
+            with st.spinner(
+                "Mengambil isi artikel..."
+            ):
+
+                content = (
+                    extract_article_content(
+                        real_url
+                    )
+                )
+
+            if content:
+
+                st.success(
+                    f"✅ Isi artikel berhasil diambil "
+                    f"({len(content)} karakter)"
+                )
+
+                st.text_area(
+                    "Isi Artikel",
+                    content,
+                    height=400
+                )
+
+            else:
+
+                st.warning(
+                    "⚠️ URL ditemukan tetapi isi "
+                    "artikel tidak berhasil diambil."
+                )
+
         else:
 
             st.error(
@@ -1040,7 +1042,6 @@ if st.button(
         st.warning(
             "⚠️ Tidak ada berita ditemukan."
         )
-    
 # ============================================================
 # KONFIGURASI GEMINI AI
 # ============================================================
