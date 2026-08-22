@@ -1633,22 +1633,17 @@ SEKTOR_BPS = [
 AI_CLASSIFICATION_PROMPT = """
 Anda adalah analis berita ekonomi daerah Kabupaten Lamongan.
 
-Tugas Anda adalah menganalisis ARTIKEL BERITA berdasarkan
-ISI ARTIKEL, bukan hanya judul.
+Tugas Anda adalah menganalisis isi artikel berita.
 
-ATURAN UTAMA:
+Tentukan:
 
-1. Tentukan apakah artikel merupakan berita ekonomi atau
-   memiliki dampak ekonomi yang jelas.
+1. Apakah berita merupakan berita ekonomi.
+2. Isu ekonomi utama.
+3. Satu sektor BPS yang paling sesuai.
+4. Ringkasan berita.
+5. Alasan klasifikasi.
 
-2. Jangan menentukan ekonomi hanya karena terdapat kata:
-   "ekonomi", "uang", "harga", "pemerintah", "Lamongan",
-   atau kata umum lainnya.
-
-3. Identifikasi AKTIVITAS EKONOMI UTAMA yang dibahas dalam
-   artikel.
-
-4. Pilih tepat SATU sektor dari daftar sektor BPS berikut:
+DAFTAR SEKTOR BPS:
 
 A - Pertanian, Kehutanan, dan Perikanan
 B - Pertambangan dan Penggalian
@@ -1668,54 +1663,16 @@ P - Jasa Pendidikan
 Q - Jasa Kesehatan dan Kegiatan Sosial
 R,S,T,U - Jasa lainnya
 
-5. Jangan memilih sektor berdasarkan kata yang hanya muncul
-   sekali. Tentukan sektor berdasarkan kegiatan utama artikel.
+Gunakan isi artikel sebagai dasar utama klasifikasi.
 
-6. Jika artikel membahas UMKM:
-   - pilih G jika fokus utamanya perdagangan;
-   - pilih C jika fokus utamanya produksi/pengolahan;
-   - pilih I jika fokus utamanya usaha makanan/minuman;
-   - pilih sektor lain jika isi artikel lebih kuat pada sektor tersebut.
-
-7. Jika artikel membahas pertanian, perkebunan, peternakan,
-   perikanan atau kehutanan, gunakan sektor A.
-
-8. Jika artikel membahas pembangunan gedung, jalan, jembatan,
-   perumahan atau proyek konstruksi, gunakan sektor F.
-
-9. Jika artikel membahas bank, kredit, pembiayaan, asuransi,
-   investasi keuangan atau layanan keuangan, gunakan sektor K.
-
-10. Jika artikel membahas hotel, restoran, kuliner atau
-    penyediaan makanan/minuman sebagai aktivitas usaha utama,
-    gunakan sektor I.
-
-11. Jika artikel membahas sekolah, perguruan tinggi, pelatihan
-    pendidikan atau kegiatan pendidikan, gunakan sektor P.
-
-12. Jika artikel membahas rumah sakit, klinik, kesehatan atau
-    kegiatan sosial, gunakan sektor Q.
-
-13. Jika artikel bukan berita ekonomi dan tidak memiliki
-    hubungan ekonomi yang jelas:
-    ekonomi = false
-    sektor = ""
-    isu_ekonomi = ""
-    ringkasan = ""
-
-14. Pilih hanya SATU sektor utama.
-
-15. Berikan alasan singkat mengapa artikel dikategorikan
-    sebagai ekonomi dan mengapa sektor tersebut dipilih.
-
-FORMAT OUTPUT WAJIB JSON:
+Output wajib berupa JSON:
 
 {
     "ekonomi": true,
-    "isu_ekonomi": "nama isu ekonomi",
-    "sektor": "satu sektor dari daftar",
-    "ringkasan": "ringkasan 2-3 kalimat dalam Bahasa Indonesia",
-    "alasan": "alasan singkat berdasarkan isi artikel"
+    "isu_ekonomi": "",
+    "sektor": "",
+    "ringkasan": "",
+    "alasan": ""
 }
 
 Jangan memberikan markdown.
