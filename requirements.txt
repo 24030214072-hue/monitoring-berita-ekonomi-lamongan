@@ -1,8 +1,8 @@
 streamlit
 pandas
-feedparser
-requests
-beautifulsoup4
-plotly
 google-genai
-openpyxl
+python-dotenv
+playwright
+beautifulsoup4
+requests
+feedparser
