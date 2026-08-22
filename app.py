@@ -1079,46 +1079,86 @@ with st.sidebar:
     st.title("Dashboard Control")
 
     # ========================================================
-    # STATUS GEMINI AI
-    # ========================================================
+# STATUS GEMINI AI
+# ========================================================
 
-    if gemini_client is not None:
-        st.success("🟢 Gemini AI: Active")
-    else:
-        st.error("🔴 Gemini AI: Offline (Cek Secrets)")
+if gemini_client is not None:
+    st.success("🟢 Gemini AI: Active")
+else:
+    st.error("🔴 Gemini AI: Offline (Cek Secrets)")
 
-    st.divider()
+st.divider()
 
-    st.subheader("⚙️ Aksi")
+st.subheader("⚙️ Aksi")
 
-    if st.button(
-        "🔄 Ambil Berita Terbaru",
-        use_container_width=True
-    ):
-        new_data = fetch_and_process_news()
+# ========================================================
+# AMBIL BERITA TERBARU
+# ========================================================
 
-        if not new_data.empty:
-            st.session_state.data = new_data
+if st.button(
+    "🔄 Ambil Berita Terbaru",
+    use_container_width=True
+):
+    with st.spinner("🔎 Mengambil dan menganalisis berita..."):
 
-            new_data.to_csv(
-                DATA_FILE,
-                index=False,
-                encoding="utf-8-sig"
+        try:
+            # Pastikan fungsi ini sudah didefinisikan
+            # sebelum bagian UI ini dijalankan.
+            new_data = fetch_and_process_news()
+
+            # Pastikan hasil berupa DataFrame
+            if new_data is not None and not new_data.empty:
+
+                st.session_state.data = new_data.copy()
+
+                new_data.to_csv(
+                    DATA_FILE,
+                    index=False,
+                    encoding="utf-8-sig"
+                )
+
+                st.success(
+                    f"✅ Data berhasil diperbarui! "
+                    f"{len(new_data)} berita berhasil diproses."
+                )
+
+                st.rerun()
+
+            else:
+                st.warning(
+                    "⚠️ Tidak ada berita yang berhasil ditemukan "
+                    "atau diproses."
+                )
+
+        except Exception as e:
+            st.error(
+                "❌ Terjadi kesalahan saat mengambil berita."
             )
 
-            st.success("Data berhasil diperbarui!")
-            st.rerun()
+            st.exception(e)
 
-    if st.button(
-        "🗑️ Reset & Bersihkan Data",
-        use_container_width=True
-    ):
+
+# ========================================================
+# RESET & BERSIHKAN DATA
+# ========================================================
+
+if st.button(
+    "🗑️ Reset & Bersihkan Data",
+    use_container_width=True
+):
+    try:
         st.session_state.data = create_sample_data()
 
         if DATA_FILE.exists():
             DATA_FILE.unlink()
 
+        st.success("🗑️ Data berhasil direset.")
+
         st.rerun()
+
+    except Exception as e:
+        st.error("❌ Gagal mereset data.")
+        st.exception(e)
 
     st.divider()
     st.subheader("🔎 Filter Data")
