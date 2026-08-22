@@ -1520,6 +1520,31 @@ def fetch_and_process_news():
         st.exception(e)
 
         return pd.DataFrame()
+if st.button(
+    "🔄 Ambil Berita Terbaru",
+    use_container_width=True
+):
+    new_data = fetch_and_process_news()
+
+    if new_data is not None and not new_data.empty:
+        st.session_state.data = new_data.copy()
+
+        new_data.to_csv(
+            DATA_FILE,
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+        st.success(
+            f"✅ {len(new_data)} berita berhasil diperbarui!"
+        )
+
+        st.rerun()
+
+    else:
+        st.warning(
+            "⚠️ Tidak ada berita baru yang berhasil diproses."
+        )
 
 
 # ========================================================
