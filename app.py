@@ -1821,17 +1821,10 @@ Keluarkan HANYA JSON dengan format:
 }
 """
 # ============================================================
-# ANALISIS BERITA DENGAN GEMINI
+# ANALISIS BERITA DENGAN GEMINI AI
 # ============================================================
 
-def analyze_news_with_ai(
-    title,
-    content
-):
-
-    # --------------------------------------------------------
-    # CEK GEMINI
-    # --------------------------------------------------------
+def analyze_news_with_ai(title, content):
 
     if gemini_client is None:
 
@@ -1840,45 +1833,103 @@ def analyze_news_with_ai(
             "isu_ekonomi": "",
             "sektor": "",
             "ringkasan": "",
-            "alasan":
-                "Gemini AI tidak aktif."
+            "alasan": "Gemini AI tidak aktif"
         }
 
-    # --------------------------------------------------------
-    # CEK ISI
-    # --------------------------------------------------------
-
-    if not content:
+    if not content or len(content.strip()) < 50:
 
         return {
             "ekonomi": False,
             "isu_ekonomi": "",
             "sektor": "",
             "ringkasan": "",
-            "alasan":
-                "Isi artikel tidak tersedia."
+            "alasan": "Isi berita tidak cukup"
         }
 
     try:
 
-        # Batasi isi agar tidak terlalu besar
-        article_content = content[
-            :7000
-        ]
+        article_content = clean_text(
+            content
+        )[:7000]
 
         prompt = f"""
-{AI_CLASSIFICATION_PROMPT}
+Anda adalah sistem klasifikasi berita ekonomi
+Kabupaten Lamongan.
 
-JUDUL BERITA:
+Analisis BERDASARKAN ISI BERITA.
+Jangan hanya menggunakan judul.
+
+JUDUL:
 {title}
 
 ISI BERITA:
 {article_content}
-"""
 
-        # ----------------------------------------------------
-        # REQUEST GEMINI
-        # ----------------------------------------------------
+TENTUKAN:
+
+1. ekonomi:
+   true jika isi berita benar-benar berkaitan
+   dengan aktivitas atau kondisi ekonomi.
+
+   false jika tidak berkaitan dengan ekonomi.
+
+2. isu_ekonomi:
+   Pilih SATU isu ekonomi utama yang paling
+   sesuai dengan isi berita.
+
+3. sektor:
+   Pilih SATU sektor lapangan usaha BPS yang
+   paling dominan.
+
+4. ringkasan:
+   Buat ringkasan 2-3 kalimat,
+   maksimal 80 kata.
+
+5. alasan:
+   Jelaskan secara singkat alasan klasifikasi.
+
+17 SEKTOR BPS:
+
+A - Pertanian, Kehutanan, dan Perikanan
+B - Pertambangan dan Penggalian
+C - Industri Pengolahan
+D - Pengadaan Listrik dan Gas
+E - Pengadaan Air, Pengelolaan Sampah, Limbah dan Daur Ulang
+F - Konstruksi
+G - Perdagangan Besar dan Eceran; Reparasi Mobil dan Sepeda Motor
+H - Transportasi dan Pergudangan
+I - Penyediaan Akomodasi dan Makan Minum
+J - Informasi dan Komunikasi
+K - Jasa Keuangan dan Asuransi
+L - Real Estat
+M,N - Jasa Perusahaan
+O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib
+P - Jasa Pendidikan
+Q - Jasa Kesehatan dan Kegiatan Sosial
+R,S,T,U - Jasa Lainnya
+
+ATURAN:
+
+- Jangan menentukan sektor hanya berdasarkan
+  kata yang muncul di judul.
+- Baca konteks keseluruhan isi berita.
+- Pilih hanya SATU sektor utama.
+- Jangan membuat fakta baru.
+- Jika berita bukan ekonomi, ekonomi harus false.
+- Jika ekonomi false, isu_ekonomi dan sektor
+  dikosongkan.
+- Ringkasan harus berdasarkan isi artikel.
+
+KELUARKAN HANYA JSON:
+
+{{
+    "ekonomi": true,
+    "isu_ekonomi": "...",
+    "sektor": "...",
+    "ringkasan": "...",
+    "alasan": "..."
+}}
+"""
 
         response = gemini_client.models.generate_content(
             model="gemini-3.6-flash",
@@ -1887,10 +1938,7 @@ ISI BERITA:
 
         result_text = response.text.strip()
 
-        # ----------------------------------------------------
-        # BERSIHKAN MARKDOWN JSON
-        # ----------------------------------------------------
-
+        # Bersihkan kemungkinan markdown
         result_text = (
             result_text
             .replace("```json", "")
@@ -1898,141 +1946,221 @@ ISI BERITA:
             .strip()
         )
 
-        # ----------------------------------------------------
-        # PARSE JSON
-        # ----------------------------------------------------
-
         result = json.loads(
             result_text
         )
 
-        # ----------------------------------------------------
-        # VALIDASI
-        # ----------------------------------------------------
-
         return {
-
-            "ekonomi":
-                bool(
-                    result.get(
-                        "ekonomi",
-                        False
-                    )
-                ),
-
-            "isu_ekonomi":
-                str(
-                    result.get(
-                        "isu_ekonomi",
-                        ""
-                    )
-                ),
-
-            "sektor":
-                str(
-                    result.get(
-                        "sektor",
-                        ""
-                    )
-                ),
-
-            "ringkasan":
-                str(
-                    result.get(
-                        "ringkasan",
-                        ""
-                    )
-                ),
-
-            "alasan":
-                str(
-                    result.get(
-                        "alasan",
-                        ""
-                    )
+            "ekonomi": bool(
+                result.get(
+                    "ekonomi",
+                    False
                 )
+            ),
+
+            "isu_ekonomi": str(
+                result.get(
+                    "isu_ekonomi",
+                    ""
+                )
+            ),
+
+            "sektor": str(
+                result.get(
+                    "sektor",
+                    ""
+                )
+            ),
+
+            "ringkasan": str(
+                result.get(
+                    "ringkasan",
+                    ""
+                )
+            ),
+
+            "alasan": str(
+                result.get(
+                    "alasan",
+                    ""
+                )
+            )
         }
 
     except Exception as e:
 
         print(
-            "ERROR Gemini:",
+            "ERROR ANALISIS GEMINI:",
             repr(e)
         )
 
         return {
-
             "ekonomi": False,
-
             "isu_ekonomi": "",
-
             "sektor": "",
-
             "ringkasan": "",
-
-            "alasan":
-                f"Gemini error: {e}"
+            "alasan": f"Gemini error: {e}"
         }
 # ============================================================
-# TEST GEMINI AI
+# PROSES SATU BERITA
+# ============================================================
+
+def process_single_news(item):
+
+    title = item.get(
+        "Judul Berita",
+        ""
+    )
+
+    content = item.get(
+        "Isi Berita",
+        ""
+    )
+
+    # Jika belum ada Isi Berita,
+    # gunakan Ringkasan sebagai cadangan
+    if not content:
+
+        content = item.get(
+            "Ringkasan",
+            ""
+        )
+
+    # --------------------------------------------------------
+    # ANALISIS GEMINI
+    # --------------------------------------------------------
+
+    ai_result = analyze_news_with_ai(
+        title,
+        content
+    )
+
+    # --------------------------------------------------------
+    # GABUNGKAN DATA
+    # --------------------------------------------------------
+
+    result = item.copy()
+
+    result["Ekonomi"] = ai_result.get(
+        "ekonomi",
+        False
+    )
+
+    result["Isu Ekonomi"] = ai_result.get(
+        "isu_ekonomi",
+        ""
+    )
+
+    result["Sektor"] = ai_result.get(
+        "sektor",
+        ""
+    )
+
+    result["Ringkasan Berita"] = ai_result.get(
+        "ringkasan",
+        ""
+    )
+
+    result["Alasan AI"] = ai_result.get(
+        "alasan",
+        ""
+    )
+
+    return result
+# ============================================================
+# TEST INTEGRASI BERITA + GEMINI
 # ============================================================
 
 st.divider()
 
 st.subheader(
-    "🤖 Test Gemini AI"
+    "🧪 Test Integrasi Berita + Gemini"
 )
 
 test_title = st.text_input(
-    "Judul Berita",
+    "Judul berita",
     value=(
-        "MegPreneur 2026 Dorong "
-        "Wirausaha Muda Lamongan "
-        "Naik Kelas"
-    )
+        "MegPreneur 2026 Dorong Wirausaha "
+        "Muda Lamongan Naik Kelas"
+    ),
+    key="integration_title"
 )
 
 test_content = st.text_area(
-    "Isi Berita",
-    height=250,
+    "Isi berita",
     value="""
 Program MegPreneur 2026 di Kabupaten Lamongan
-mendorong pelaku usaha muda untuk mengembangkan
-bisnis dan meningkatkan kapasitas usaha.
-Pemerintah daerah memperkuat ekosistem bisnis
-melalui pendampingan dan pengembangan UMKM.
-"""
+mendorong wirausaha muda untuk meningkatkan
+kapasitas usaha. Program tersebut memberikan
+pendampingan kepada pelaku UMKM agar dapat
+mengembangkan bisnis dan memperluas pasar.
+Pemerintah daerah juga memperkuat ekosistem
+kewirausahaan di Kabupaten Lamongan.
+""",
+    height=250,
+    key="integration_content"
 )
 
 if st.button(
-    "🤖 Analisis dengan Gemini",
+    "🚀 Proses Berita dengan Gemini",
     use_container_width=True
 ):
 
-    if gemini_client is None:
+    test_item = {
 
-        st.error(
-            "❌ Gemini AI belum aktif."
+        "Judul Berita":
+            test_title,
+
+        "Isi Berita":
+            test_content,
+
+        "Media":
+            "Test",
+
+        "Link Berita":
+            ""
+    }
+
+    with st.spinner(
+        "🤖 Gemini sedang menganalisis..."
+    ):
+
+        processed = process_single_news(
+            test_item
         )
 
-    else:
+    st.success(
+        "✅ Berita berhasil diproses"
+    )
 
-        with st.spinner(
-            "🤖 Gemini sedang menganalisis..."
-        ):
+    st.write(
+        "### Hasil Analisis"
+    )
 
-            result = analyze_news_with_ai(
-                test_title,
-                test_content
-            )
+    st.write(
+        "**Ekonomi:**",
+        processed["Ekonomi"]
+    )
 
-        st.success(
-            "✅ Analisis selesai"
-        )
+    st.write(
+        "**Isu Ekonomi:**",
+        processed["Isu Ekonomi"]
+    )
 
-        st.json(
-            result
-        )
+    st.write(
+        "**Sektor:**",
+        processed["Sektor"]
+    )
+
+    st.write(
+        "**Ringkasan:**",
+        processed["Ringkasan Berita"]
+    )
+
+    st.write(
+        "**Alasan:**",
+        processed["Alasan AI"]
+    )
 # ============================================================
 # 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
 # ============================================================
