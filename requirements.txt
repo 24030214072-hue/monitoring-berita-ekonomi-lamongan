@@ -1,8 +1,8 @@
 streamlit
 pandas
 requests
-feedparser
 beautifulsoup4
-playwright
+gnews
 gnews[playwright]
+playwright
 google-genai
