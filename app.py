@@ -1829,19 +1829,19 @@ def analyze_news_with_ai(
 
         prompt = f"""
 
-{AI_CLASSIFICATION_PROMPT}
+        {AI_CLASSIFICATION_PROMPT}
 
-JUDUL BERITA:
-{clean_text(title)}
+        JUDUL BERITA:
+        {clean_text(title)}
 
-ISI ARTIKEL:
-{article_content}
+        ISI ARTIKEL:
+        {article_content}
 
-Sekarang lakukan klasifikasi berdasarkan isi artikel
-di atas.
+        Sekarang lakukan klasifikasi berdasarkan isi artikel
+        di atas.
 
-KELUARKAN HANYA JSON.
-"""
+        KELUARKAN HANYA JSON.
+        """
 
 
         # ----------------------------------------------------
@@ -2111,7 +2111,56 @@ def process_single_news(
 
     return result
 
+# ============================================================
+# TEST GEMINI AI
+# ============================================================
 
+st.divider()
+
+st.subheader("🧪 Test Gemini AI")
+
+test_title = st.text_input(
+    "Judul Berita",
+    value="Harga cabai di Lamongan mengalami kenaikan"
+)
+
+test_content = st.text_area(
+    "Isi Berita",
+    value="""
+    Harga cabai rawit di sejumlah pasar Kabupaten Lamongan
+    mengalami kenaikan akibat berkurangnya pasokan dari petani.
+    Kenaikan harga tersebut berdampak terhadap pedagang dan
+    konsumen di wilayah Lamongan.
+    """,
+    height=200
+)
+
+if st.button(
+    "🤖 Test Analisis Gemini",
+    use_container_width=True
+):
+
+    if not test_content.strip():
+
+        st.warning(
+            "Isi berita harus diisi."
+        )
+
+    else:
+
+        with st.spinner(
+            "Gemini sedang menganalisis..."
+        ):
+
+            result = analyze_news_with_ai(
+                test_title,
+                test_content
+            )
+
+        st.write("### Hasil Analisis")
+
+        st.json(result)
+        
 # ============================================================
 # NORMALISASI TEKS UNTUK DEDUPLIKASI
 # ============================================================
