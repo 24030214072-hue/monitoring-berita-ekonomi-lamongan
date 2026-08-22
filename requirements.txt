@@ -4,4 +4,5 @@ requests
 feedparser
 beautifulsoup4
 playwright
+gnews[playwright]
 google-genai
