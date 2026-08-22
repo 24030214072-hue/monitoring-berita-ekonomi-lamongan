@@ -6,3 +6,4 @@ beautifulsoup4
 playwright
 gnews[playwright]
 google-genai
+googlesearch-python
