@@ -927,10 +927,68 @@ def resolve_google_news_url(url):
 
     return url
 # ============================================================
+# CARI URL ASLI BERDASARKAN JUDUL
+# ============================================================
+
+def find_real_article_url(title, media=""):
+
+    if not title:
+        return ""
+
+    try:
+
+        from googlesearch import search
+
+        query = f'"{title}" {media}'
+
+        results = search(
+            query,
+            num_results=5,
+            lang="id"
+        )
+
+        for url in results:
+
+            if not url:
+                continue
+
+            # Jangan ambil Google News
+            if "news.google.com" in url:
+                continue
+
+            # Prioritaskan website media
+            if media:
+
+                media_domain = (
+                    media.lower()
+                    .replace("www.", "")
+                    .strip()
+                )
+
+                if media_domain in url.lower():
+
+                    return url
+
+            # Kalau tidak menemukan domain media,
+            # gunakan URL pertama yang bukan Google News
+            return url
+
+    except Exception as e:
+
+        print(
+            f"Gagal mencari URL asli: {e}"
+        )
+
+    return ""
+# ============================================================
 # EXTRACT ARTICLE CONTENT
 # ============================================================
 
-def extract_article_content(url):
+def extract_article_content(
+    url,
+    title="",
+    media=""
+):
 
     if not url:
         return ""
@@ -938,21 +996,36 @@ def extract_article_content(url):
     try:
 
         # ====================================================
-        # 1. RESOLVE GOOGLE NEWS
+        # 1. CEK APAKAH URL GOOGLE NEWS
         # ====================================================
 
-        real_url = (
-            resolve_google_news_url(
-                url
+        real_url = url
+
+        if "news.google.com" in url:
+
+            real_url = find_real_article_url(
+                title,
+                media
             )
-        )
+
+        # ====================================================
+        # 2. VALIDASI URL
+        # ====================================================
+
+        if not real_url:
+
+            print(
+                "URL artikel asli tidak ditemukan."
+            )
+
+            return ""
 
         print(
-            f"URL artikel: {real_url}"
+            f"URL artikel asli: {real_url}"
         )
 
         # ====================================================
-        # 2. REQUEST
+        # 3. REQUEST
         # ====================================================
 
         headers = {
@@ -972,20 +1045,21 @@ def extract_article_content(url):
         response = requests.get(
             real_url,
             headers=headers,
-            timeout=15,
+            timeout=20,
             allow_redirects=True
         )
 
         if response.status_code != 200:
 
             print(
-                f"HTTP {response.status_code}"
+                f"HTTP Error: "
+                f"{response.status_code}"
             )
 
             return ""
 
         # ====================================================
-        # 3. PARSE
+        # 4. PARSE
         # ====================================================
 
         soup = BeautifulSoup(
@@ -994,7 +1068,7 @@ def extract_article_content(url):
         )
 
         # ====================================================
-        # 4. HAPUS ELEMENT
+        # 5. HAPUS ELEMENT
         # ====================================================
 
         for tag in soup.find_all([
@@ -1011,7 +1085,7 @@ def extract_article_content(url):
             tag.decompose()
 
         # ====================================================
-        # 5. ARTICLE
+        # 6. AMBIL ARTICLE
         # ====================================================
 
         article = soup.find(
@@ -1040,7 +1114,7 @@ def extract_article_content(url):
             )
 
         # ====================================================
-        # 6. CLEAN
+        # 7. CLEAN
         # ====================================================
 
         text = clean_text(
@@ -1048,10 +1122,14 @@ def extract_article_content(url):
         )
 
         # ====================================================
-        # 7. VALIDASI
+        # 8. VALIDASI
         # ====================================================
 
         if len(text) < 100:
+
+            print(
+                "Isi artikel terlalu pendek."
+            )
 
             return ""
 
@@ -1062,7 +1140,7 @@ def extract_article_content(url):
     except Exception as e:
 
         print(
-            f"ERROR extract article: {e}"
+            f"Gagal mengambil artikel: {e}"
         )
 
         return ""
