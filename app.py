@@ -1631,22 +1631,24 @@ SEKTOR_BPS = [
 # ============================================================
 
 AI_CLASSIFICATION_PROMPT = """
-Anda adalah analis berita ekonomi Kabupaten Lamongan.
+Anda adalah analis berita ekonomi daerah Kabupaten Lamongan.
 
-Tugas Anda adalah menganalisis isi berita secara menyeluruh.
+Tugas Anda adalah menganalisis ARTIKEL BERITA berdasarkan
+ISI ARTIKEL, bukan hanya judul.
 
-Jangan hanya menggunakan judul berita.
-Gunakan isi berita sebagai sumber utama.
+ATURAN UTAMA:
 
-Tentukan:
+1. Tentukan apakah artikel merupakan berita ekonomi atau
+   memiliki dampak ekonomi yang jelas.
 
-1. Apakah berita tersebut merupakan berita ekonomi?
-2. Jika ekonomi, tentukan satu isu ekonomi utama.
-3. Tentukan satu sektor lapangan usaha BPS yang paling sesuai.
-4. Buat ringkasan berita dalam bahasa Indonesia sebanyak 2-3 kalimat.
-5. Jika bukan berita ekonomi, jelaskan alasan singkatnya.
+2. Jangan menentukan ekonomi hanya karena terdapat kata:
+   "ekonomi", "uang", "harga", "pemerintah", "Lamongan",
+   atau kata umum lainnya.
 
-DAFTAR SEKTOR BPS:
+3. Identifikasi AKTIVITAS EKONOMI UTAMA yang dibahas dalam
+   artikel.
+
+4. Pilih tepat SATU sektor dari daftar sektor BPS berikut:
 
 A - Pertanian, Kehutanan, dan Perikanan
 B - Pertambangan dan Penggalian
@@ -1664,26 +1666,60 @@ M,N - Jasa Perusahaan
 O - Administrasi Pemerintahan, Pertahanan dan Jaminan Sosial Wajib
 P - Jasa Pendidikan
 Q - Jasa Kesehatan dan Kegiatan Sosial
-R,S,T,U - Jasa Lainnya
+R,S,T,U - Jasa lainnya
 
-ATURAN:
+5. Jangan memilih sektor berdasarkan kata yang hanya muncul
+   sekali. Tentukan sektor berdasarkan kegiatan utama artikel.
 
-- Gunakan isi artikel, bukan hanya judul.
-- Pilih hanya SATU sektor utama.
-- Pilih hanya SATU isu ekonomi utama.
-- Jangan membuat informasi yang tidak terdapat dalam artikel.
-- Jika informasi tidak cukup, gunakan "Tidak dapat ditentukan".
-- Ringkasan maksimal 80 kata.
+6. Jika artikel membahas UMKM:
+   - pilih G jika fokus utamanya perdagangan;
+   - pilih C jika fokus utamanya produksi/pengolahan;
+   - pilih I jika fokus utamanya usaha makanan/minuman;
+   - pilih sektor lain jika isi artikel lebih kuat pada sektor tersebut.
 
-Keluarkan HANYA JSON dengan format:
+7. Jika artikel membahas pertanian, perkebunan, peternakan,
+   perikanan atau kehutanan, gunakan sektor A.
+
+8. Jika artikel membahas pembangunan gedung, jalan, jembatan,
+   perumahan atau proyek konstruksi, gunakan sektor F.
+
+9. Jika artikel membahas bank, kredit, pembiayaan, asuransi,
+   investasi keuangan atau layanan keuangan, gunakan sektor K.
+
+10. Jika artikel membahas hotel, restoran, kuliner atau
+    penyediaan makanan/minuman sebagai aktivitas usaha utama,
+    gunakan sektor I.
+
+11. Jika artikel membahas sekolah, perguruan tinggi, pelatihan
+    pendidikan atau kegiatan pendidikan, gunakan sektor P.
+
+12. Jika artikel membahas rumah sakit, klinik, kesehatan atau
+    kegiatan sosial, gunakan sektor Q.
+
+13. Jika artikel bukan berita ekonomi dan tidak memiliki
+    hubungan ekonomi yang jelas:
+    ekonomi = false
+    sektor = ""
+    isu_ekonomi = ""
+    ringkasan = ""
+
+14. Pilih hanya SATU sektor utama.
+
+15. Berikan alasan singkat mengapa artikel dikategorikan
+    sebagai ekonomi dan mengapa sektor tersebut dipilih.
+
+FORMAT OUTPUT WAJIB JSON:
 
 {
     "ekonomi": true,
-    "isu_ekonomi": "...",
-    "sektor": "...",
-    "ringkasan": "...",
-    "alasan": "..."
+    "isu_ekonomi": "nama isu ekonomi",
+    "sektor": "satu sektor dari daftar",
+    "ringkasan": "ringkasan 2-3 kalimat dalam Bahasa Indonesia",
+    "alasan": "alasan singkat berdasarkan isi artikel"
 }
+
+Jangan memberikan markdown.
+Jangan memberikan penjelasan di luar JSON.
 """
 # ============================================================
 # ANALISIS BERITA DENGAN GEMINI AI
@@ -1718,18 +1754,19 @@ def analyze_news_with_ai(title, content):
         )[:7000]
 
         prompt = f"""
-Anda adalah sistem klasifikasi berita ekonomi
-Kabupaten Lamongan.
+        Anda adalah sistem klasifikasi berita ekonomi
+        Kabupaten Lamongan.
 
-Analisis BERDASARKAN ISI BERITA.
-Jangan hanya menggunakan judul.
+        Analisis BERDASARKAN ISI BERITA.
+        Jangan hanya menggunakan judul.
 
-JUDUL:
-{title}
-
-ISI BERITA:
-{article_content}
-
+        JUDUL:
+        {title}
+        
+        ISI ARTIKEL:
+        {content}
+        """
+ 
 TENTUKAN:
 
 1. ekonomi:
@@ -1814,7 +1851,18 @@ KELUARKAN HANYA JSON:
         result = json.loads(
             result_text
         )
+        # ============================================================
+        # VALIDASI SEKTOR BPS
+        # ============================================================
 
+        result["sektor"] = validate_sector(
+            result.get(
+                "sektor",
+                ""
+            )
+        )
+        return result
+        
         return {
             "ekonomi": bool(
                 result.get(
@@ -1866,6 +1914,22 @@ KELUARKAN HANYA JSON:
             "ringkasan": "",
             "alasan": f"Gemini error: {e}"
         }
+def validate_sector(sector):
+
+    if not sector:
+        return ""
+
+    sector = str(
+        sector
+    ).strip()
+
+    for valid_sector in SEKTOR_BPS:
+
+        if sector == valid_sector:
+
+            return valid_sector
+
+    return ""
 # ============================================================
 # PROSES SATU BERITA
 # ============================================================
@@ -2206,6 +2270,7 @@ def fetch_and_process_news():
         )
 
         return pd.DataFrame()
+    
 
     # ========================================================
     # BUAT DATAFRAME
