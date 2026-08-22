@@ -650,44 +650,266 @@ def search_news_rss(topic, max_results=8):
 
     return articles
 # ============================================================
-# TEST RSS
+# AMBIL SEMUA KANDIDAT BERITA
+# ============================================================
+
+def collect_news_candidates():
+
+    all_articles = []
+
+    progress = st.progress(0)
+
+    total_topics = len(
+        SEARCH_TOPICS
+    )
+
+    for i, topic in enumerate(
+        SEARCH_TOPICS
+    ):
+
+        try:
+
+            articles = search_news_rss(
+                topic,
+                max_results=MAX_RESULTS_PER_TOPIC
+            )
+
+            all_articles.extend(
+                articles
+            )
+
+        except Exception as e:
+
+            print(
+                f"Gagal topic {topic}: {e}"
+            )
+
+        progress.progress(
+            (i + 1) / total_topics
+        )
+
+        # Jangan terlalu cepat melakukan request
+        time.sleep(0.2)
+
+        # Batasi kandidat
+        if len(all_articles) >= MAX_TOTAL_CANDIDATES:
+
+            all_articles = (
+                all_articles[
+                    :MAX_TOTAL_CANDIDATES
+                ]
+            )
+
+            break
+
+    progress.empty()
+
+    return all_articles
+# ============================================================
+# CLEAN CANDIDATE DATA
+# ============================================================
+
+def clean_candidate_data(
+    articles
+):
+
+    if not articles:
+
+        return pd.DataFrame(
+            columns=CANDIDATE_COLUMNS
+        )
+
+    df = pd.DataFrame(
+        articles
+    )
+
+    # Pastikan semua kolom tersedia
+    for col in CANDIDATE_COLUMNS:
+
+        if col not in df.columns:
+            df[col] = ""
+
+    # Cleaning
+    df["Judul Berita"] = (
+        df["Judul Berita"]
+        .fillna("")
+        .astype(str)
+        .apply(clean_text)
+    )
+
+    df["Link Berita"] = (
+        df["Link Berita"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    df["Media"] = (
+        df["Media"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Buang judul kosong
+    df = df[
+        df["Judul Berita"] != ""
+    ].copy()
+
+    # Buang URL kosong
+    df = df[
+        df["Link Berita"] != ""
+    ].copy()
+
+    # Hapus URL sama
+    df = df.drop_duplicates(
+        subset=["Link Berita"],
+        keep="first"
+    )
+
+    return df.reset_index(
+        drop=True
+    )
+# ============================================================
+# EXTRACT ARTICLE CONTENT
+# ============================================================
+
+def extract_article_content(url):
+
+    if not url:
+        return ""
+
+    try:
+
+        headers = {
+            "User-Agent":
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/151.0 Safari/537.36"
+        }
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=ARTICLE_TIMEOUT
+        )
+
+        if response.status_code != 200:
+            return ""
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
+
+        # Hapus elemen yang tidak diperlukan
+        for tag in soup([
+            "script",
+            "style",
+            "nav",
+            "footer",
+            "header",
+            "aside",
+            "form"
+        ]):
+
+            tag.decompose()
+
+        # Prioritas elemen artikel
+        article = soup.find(
+            "article"
+        )
+
+        if article:
+
+            text = article.get_text(
+                " ",
+                strip=True
+            )
+
+        else:
+
+            paragraphs = soup.find_all(
+                "p"
+            )
+
+            text = " ".join(
+                p.get_text(
+                    " ",
+                    strip=True
+                )
+                for p in paragraphs
+            )
+
+        text = clean_text(
+            text
+        )
+
+        return text[
+            :MAX_CONTENT_LENGTH
+        ]
+
+    except Exception as e:
+
+        print(
+            f"Gagal ekstraksi {url}: {e}"
+        )
+
+        return ""
+# ============================================================
+# TEST ARTICLE EXTRACTION
 # ============================================================
 
 if st.button(
-    "🧪 Test Pengambilan Berita"
+    "🧪 Test Isi Artikel"
 ):
 
-    with st.spinner(
-        "Mengambil berita..."
-    ):
-
-        test_articles = search_news_rss(
-            "Lamongan ekonomi",
-            max_results=5
-        )
+    test_articles = search_news_rss(
+        "Lamongan ekonomi",
+        max_results=1
+    )
 
     if test_articles:
 
-        test_df = pd.DataFrame(
-            test_articles
+        url = test_articles[0][
+            "Link Berita"
+        ]
+
+        st.write(
+            "URL:",
+            url
         )
 
-        st.success(
-            f"Berhasil mendapatkan "
-            f"{len(test_df)} berita."
-        )
+        with st.spinner(
+            "Mengambil isi artikel..."
+        ):
 
-        st.dataframe(
-            test_df,
-            use_container_width=True,
-            hide_index=True
-        )
+            content = (
+                extract_article_content(
+                    url
+                )
+            )
 
-    else:
+        if content:
 
-        st.error(
-            "Tidak ada berita yang ditemukan."
-        )
+            st.success(
+                f"Berhasil mengambil "
+                f"{len(content)} karakter."
+            )
+
+            st.text_area(
+                "Isi Artikel",
+                content,
+                height=300
+            )
+
+        else:
+
+            st.warning(
+                "Isi artikel tidak berhasil diambil."
+            )
     
 # ============================================================
 # KONFIGURASI GEMINI AI
