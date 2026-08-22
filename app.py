@@ -782,6 +782,280 @@ def clean_candidate_data(
         drop=True
     )
 # ============================================================
+# CARI DAN AMBIL ARTIKEL ASLI
+# ============================================================
+
+def get_article_content(title, media):
+
+    if not title:
+        return "", ""
+
+    try:
+
+        import requests
+        from bs4 import BeautifulSoup
+        from urllib.parse import quote_plus
+
+        # ====================================================
+        # BERSIHKAN JUDUL
+        # ====================================================
+
+        clean_title_value = clean_text(title)
+
+        # Buang nama media di belakang judul
+        if " - " in clean_title_value:
+
+            clean_title_value = (
+                clean_title_value
+                .rsplit(" - ", 1)[0]
+                .strip()
+            )
+
+        # ====================================================
+        # BERSIHKAN DOMAIN MEDIA
+        # ====================================================
+
+        domain = ""
+
+        if media:
+
+            domain = (
+                media
+                .lower()
+                .replace("https://", "")
+                .replace("http://", "")
+                .replace("www.", "")
+                .strip("/")
+            )
+
+        # ====================================================
+        # BUAT QUERY
+        # ====================================================
+
+        if domain:
+
+            query = (
+                f'"{clean_title_value}" '
+                f'site:{domain}'
+            )
+
+        else:
+
+            query = (
+                f'"{clean_title_value}"'
+            )
+
+        search_url = (
+            "https://www.google.com/search?q="
+            + quote_plus(query)
+        )
+
+        # ====================================================
+        # REQUEST GOOGLE SEARCH
+        # ====================================================
+
+        headers = {
+
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/151.0 Safari/537.36"
+            ),
+
+            "Accept-Language":
+                "id-ID,id;q=0.9,en;q=0.8"
+        }
+
+        response = requests.get(
+            search_url,
+            headers=headers,
+            timeout=20
+        )
+
+        if response.status_code != 200:
+
+            print(
+                "Google Search HTTP:",
+                response.status_code
+            )
+
+            return "", ""
+
+        # ====================================================
+        # PARSE HASIL GOOGLE
+        # ====================================================
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
+
+        real_url = ""
+
+        for link in soup.select("a"):
+
+            href = link.get(
+                "href",
+                ""
+            )
+
+            if not href.startswith(
+                "http"
+            ):
+                continue
+
+            # Jangan ambil Google
+            if (
+                "google.com" in href
+                or "googleusercontent.com" in href
+            ):
+                continue
+
+            # Prioritaskan domain media
+            if domain:
+
+                if domain in href.lower():
+
+                    real_url = href
+
+                    break
+
+            elif not real_url:
+
+                real_url = href
+
+        # ====================================================
+        # URL TIDAK DITEMUKAN
+        # ====================================================
+
+        if not real_url:
+
+            print(
+                "❌ URL artikel asli tidak ditemukan"
+            )
+
+            return "", ""
+
+        print(
+            "✅ URL asli:",
+            real_url
+        )
+
+        # ====================================================
+        # REQUEST ARTIKEL ASLI
+        # ====================================================
+
+        article_response = requests.get(
+            real_url,
+            headers=headers,
+            timeout=20,
+            allow_redirects=True
+        )
+
+        if article_response.status_code != 200:
+
+            print(
+                "Artikel HTTP:",
+                article_response.status_code
+            )
+
+            return real_url, ""
+
+        # ====================================================
+        # PARSE ARTIKEL
+        # ====================================================
+
+        article_soup = BeautifulSoup(
+            article_response.text,
+            "html.parser"
+        )
+
+        # Hapus elemen yang tidak diperlukan
+        for tag in article_soup.find_all([
+            "script",
+            "style",
+            "nav",
+            "footer",
+            "header",
+            "aside",
+            "form",
+            "noscript"
+        ]):
+
+            tag.decompose()
+
+        # ====================================================
+        # AMBIL ARTICLE
+        # ====================================================
+
+        article = article_soup.find(
+            "article"
+        )
+
+        if article:
+
+            text = article.get_text(
+                " ",
+                strip=True
+            )
+
+        else:
+
+            paragraphs = (
+                article_soup.find_all("p")
+            )
+
+            text = " ".join(
+                p.get_text(
+                    " ",
+                    strip=True
+                )
+                for p in paragraphs
+            )
+
+        # ====================================================
+        # CLEAN
+        # ====================================================
+
+        text = clean_text(
+            text
+        )
+
+        # ====================================================
+        # VALIDASI
+        # ====================================================
+
+        if len(text) < 100:
+
+            print(
+                "❌ Isi artikel terlalu pendek:",
+                len(text)
+            )
+
+            return real_url, ""
+
+        print(
+            "✅ Isi artikel:",
+            len(text),
+            "karakter"
+        )
+
+        return (
+            real_url,
+            text[:MAX_CONTENT_LENGTH]
+        )
+
+    except Exception as e:
+
+        print(
+            "❌ ERROR get_article_content:",
+            e
+        )
+
+        return "", ""
+# ============================================================
 # SEARCH NEWS
 # ============================================================
 
@@ -1216,184 +1490,7 @@ def find_real_article_url(
         )
 
     return ""
-# ============================================================
-# EXTRACT ARTICLE CONTENT
-# ============================================================
 
-def extract_article_content(
-    url,
-    title="",
-    media=""
-):
-
-    if not url:
-        return ""
-
-    try:
-
-        # ====================================================
-        # 1. JIKA GOOGLE NEWS
-        # ====================================================
-
-        real_url = url
-
-        if "news.google.com" in url:
-
-            print(
-                "Google News URL terdeteksi."
-            )
-
-            # Cari URL asli berdasarkan judul
-            real_url = find_real_article_url(
-                title=title,
-                media=media
-            )
-
-        # ====================================================
-        # 2. VALIDASI
-        # ====================================================
-
-        if not real_url:
-
-            print(
-                "❌ URL artikel asli tidak ditemukan."
-            )
-
-            return ""
-
-        if "news.google.com" in real_url:
-
-            print(
-                "❌ URL masih Google News."
-            )
-
-            return ""
-
-        print(
-            f"✅ URL asli: {real_url}"
-        )
-
-        # ====================================================
-        # 3. REQUEST ARTIKEL
-        # ====================================================
-
-        headers = {
-
-            "User-Agent": (
-                "Mozilla/5.0 "
-                "(Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/151.0 Safari/537.36"
-            ),
-
-            "Accept-Language":
-                "id-ID,id;q=0.9,en;q=0.8"
-        }
-
-        response = requests.get(
-            real_url,
-            headers=headers,
-            timeout=20,
-            allow_redirects=True
-        )
-
-        if response.status_code != 200:
-
-            print(
-                f"HTTP Error: "
-                f"{response.status_code}"
-            )
-
-            return ""
-
-        # ====================================================
-        # 4. PARSE
-        # ====================================================
-
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser"
-        )
-
-        # ====================================================
-        # 5. HAPUS ELEMENT
-        # ====================================================
-
-        for tag in soup.find_all([
-            "script",
-            "style",
-            "nav",
-            "footer",
-            "header",
-            "aside",
-            "form",
-            "noscript"
-        ]):
-
-            tag.decompose()
-
-        # ====================================================
-        # 6. AMBIL ARTICLE
-        # ====================================================
-
-        article = soup.find(
-            "article"
-        )
-
-        if article:
-
-            text = article.get_text(
-                " ",
-                strip=True
-            )
-
-        else:
-
-            paragraphs = soup.find_all(
-                "p"
-            )
-
-            text = " ".join(
-                p.get_text(
-                    " ",
-                    strip=True
-                )
-                for p in paragraphs
-            )
-
-        # ====================================================
-        # 7. CLEAN
-        # ====================================================
-
-        text = clean_text(
-            text
-        )
-
-        # ====================================================
-        # 8. VALIDASI
-        # ====================================================
-
-        if len(text) < 100:
-
-            print(
-                f"Artikel terlalu pendek: "
-                f"{len(text)} karakter"
-            )
-
-            return ""
-
-        return text[
-            :MAX_CONTENT_LENGTH
-        ]
-
-    except Exception as e:
-
-        print(
-            f"❌ Gagal mengambil artikel: {e}"
-        )
-
-        return ""
 # ============================================================
 # TEST NEWS PIPELINE
 # ============================================================
@@ -1415,7 +1512,7 @@ if st.button(
     if not test_articles:
 
         st.error(
-            "❌ Google News tidak mengembalikan berita."
+            "❌ Google News tidak menemukan berita."
         )
 
     else:
@@ -1465,25 +1562,52 @@ if st.button(
             )
 
             # =================================================
-            # AMBIL ARTIKEL
+            # CARI URL ASLI + ISI ARTIKEL
             # =================================================
 
             with st.spinner(
-                "🔎 Mencari URL asli artikel..."
+                "🔎 Mencari artikel asli..."
             ):
 
-                content = (
-                    extract_article_content(
-                        url=google_url,
-                        title=title,
-                        media=media
+                real_url, content = (
+                    get_article_content(
+                        title,
+                        media
                     )
                 )
+
+            # =================================================
+            # URL ASLI
+            # =================================================
+
+            if real_url:
+
+                st.success(
+                    "✅ URL artikel asli ditemukan"
+                )
+
+                st.write(
+                    "**URL Artikel Asli:**"
+                )
+
+                st.code(
+                    real_url
+                )
+
+            else:
+
+                st.error(
+                    "❌ URL artikel asli tidak ditemukan."
+                )
+
+            # =================================================
+            # ISI ARTIKEL
+            # =================================================
 
             if content:
 
                 st.success(
-                    f"✅ Artikel berhasil "
+                    f"✅ Isi artikel berhasil "
                     f"diambil "
                     f"({len(content):,} karakter)"
                 )
@@ -1497,8 +1621,9 @@ if st.button(
 
             else:
 
-                st.error(
-                    "❌ Isi artikel tidak berhasil diambil."
+                st.warning(
+                    "⚠️ URL mungkin ditemukan, "
+                    "tetapi isi artikel gagal diambil."
                 )
 
             st.divider()
