@@ -843,10 +843,17 @@ def extract_article_content(url):
 
     try:
 
+# ============================================================
+# RESOLVE GOOGLE NEWS URL
+# ============================================================
+
 def resolve_google_news_url(url):
+
     if not url:
         return ""
 
+    # Jika URL bukan dari Google News,
+    # langsung gunakan URL tersebut
     if "news.google.com" not in url:
         return url
 
