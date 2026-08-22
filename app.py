@@ -781,7 +781,151 @@ def clean_candidate_data(
     return df.reset_index(
         drop=True
     )
+# ============================================================
+# SEARCH NEWS
+# ============================================================
 
+def search_news_rss(topic, max_results=8):
+
+    articles = []
+
+    try:
+
+        import feedparser
+
+        query = requests.utils.quote(
+            topic
+        )
+
+        rss_url = (
+            "https://news.google.com/rss/search?"
+            f"q={query}"
+            "&hl=id"
+            "&gl=ID"
+            "&ceid=ID:id"
+        )
+
+        response = requests.get(
+            rss_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 "
+                    "(Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 "
+                    "Chrome/151.0 Safari/537.36"
+                )
+            },
+            timeout=15
+        )
+
+        response.raise_for_status()
+
+        feed = feedparser.parse(
+            response.content
+        )
+
+        for entry in feed.entries[
+            :max_results
+        ]:
+
+            title = entry.get(
+                "title",
+                ""
+            )
+
+            link = entry.get(
+                "link",
+                ""
+            )
+
+            published = entry.get(
+                "published",
+                ""
+            )
+
+            summary = entry.get(
+                "summary",
+                ""
+            )
+
+            # --------------------------------------------
+            # Ambil nama media
+            # --------------------------------------------
+
+            source = ""
+
+            if hasattr(
+                entry,
+                "source"
+            ):
+
+                source = entry.source.get(
+                    "title",
+                    ""
+                )
+
+            articles.append({
+
+                "Tanggal Berita":
+                    published,
+
+                "Media":
+                    source,
+
+                "Judul Berita":
+                    clean_text(
+                        title
+                    ),
+
+                "Link Berita":
+                    link,
+
+                "Ringkasan":
+                    clean_text(
+                        summary
+                    )
+            })
+
+    except Exception as e:
+
+        print(
+            f"ERROR search_news_rss: {e}"
+        )
+
+    return articles
+# ============================================================
+# RESOLVE GOOGLE NEWS URL
+# ============================================================
+
+def resolve_google_news_url(url):
+
+    if not url:
+        return ""
+
+    # Sudah URL asli
+    if "news.google.com" not in url:
+        return url
+
+    try:
+
+        from gnews.utils.utils import resolve_url
+
+        real_url = resolve_url(
+            url
+        )
+
+        if real_url:
+
+            return real_url
+
+    except Exception as e:
+
+        print(
+            "GNews resolver gagal:",
+            e
+        )
+
+    return url
 # ============================================================
 # EXTRACT ARTICLE CONTENT
 # ============================================================
@@ -793,7 +937,26 @@ def extract_article_content(url):
 
     try:
 
+        # ====================================================
+        # 1. RESOLVE GOOGLE NEWS
+        # ====================================================
+
+        real_url = (
+            resolve_google_news_url(
+                url
+            )
+        )
+
+        print(
+            f"URL artikel: {real_url}"
+        )
+
+        # ====================================================
+        # 2. REQUEST
+        # ====================================================
+
         headers = {
+
             "User-Agent": (
                 "Mozilla/5.0 "
                 "(Windows NT 10.0; Win64; x64) "
@@ -801,32 +964,39 @@ def extract_article_content(url):
                 "(KHTML, like Gecko) "
                 "Chrome/151.0 Safari/537.36"
             ),
+
             "Accept-Language":
                 "id-ID,id;q=0.9,en;q=0.8"
         }
 
         response = requests.get(
-            url,
+            real_url,
             headers=headers,
-            timeout=ARTICLE_TIMEOUT
+            timeout=15,
+            allow_redirects=True
         )
 
         if response.status_code != 200:
 
             print(
-                f"HTTP Error "
-                f"{response.status_code}: "
-                f"{url}"
+                f"HTTP {response.status_code}"
             )
 
             return ""
+
+        # ====================================================
+        # 3. PARSE
+        # ====================================================
 
         soup = BeautifulSoup(
             response.text,
             "html.parser"
         )
 
-        # Hapus elemen yang tidak diperlukan
+        # ====================================================
+        # 4. HAPUS ELEMENT
+        # ====================================================
+
         for tag in soup.find_all([
             "script",
             "style",
@@ -840,7 +1010,10 @@ def extract_article_content(url):
 
             tag.decompose()
 
-        # Prioritaskan <article>
+        # ====================================================
+        # 5. ARTICLE
+        # ====================================================
+
         article = soup.find(
             "article"
         )
@@ -866,9 +1039,21 @@ def extract_article_content(url):
                 for p in paragraphs
             )
 
+        # ====================================================
+        # 6. CLEAN
+        # ====================================================
+
         text = clean_text(
             text
         )
+
+        # ====================================================
+        # 7. VALIDASI
+        # ====================================================
+
+        if len(text) < 100:
+
+            return ""
 
         return text[
             :MAX_CONTENT_LENGTH
@@ -877,21 +1062,21 @@ def extract_article_content(url):
     except Exception as e:
 
         print(
-            f"Gagal mengambil artikel: {e}"
+            f"ERROR extract article: {e}"
         )
 
         return ""
 # ============================================================
-# TEST PENGAMBILAN BERITA
+# TEST NEWS PIPELINE
 # ============================================================
 
 if st.button(
-    "🧪 Test Pengambilan Berita",
+    "🧪 Test News Pipeline",
     use_container_width=True
 ):
 
     with st.spinner(
-        "Mengambil berita dari Google News..."
+        "Mencari berita..."
     ):
 
         test_articles = search_news_rss(
@@ -899,37 +1084,73 @@ if st.button(
             max_results=3
         )
 
-    if test_articles:
+    if not test_articles:
 
-        st.success(
-            f"✅ Berhasil mendapatkan "
-            f"{len(test_articles)} berita."
-        )
-
-        test_df = pd.DataFrame(
-            test_articles
-        )
-
-        st.dataframe(
-            test_df[
-                [
-                    "Tanggal Berita",
-                    "Media",
-                    "Judul Berita",
-                    "Link Berita"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
+        st.error(
+            "❌ Google News tidak mengembalikan berita."
         )
 
     else:
 
-        st.error(
-            "❌ Tidak ada berita yang berhasil diambil."
+        st.success(
+            f"✅ Google News menemukan "
+            f"{len(test_articles)} berita."
         )
 
+        for i, item in enumerate(
+            test_articles
+        ):
 
+            st.markdown(
+                f"### Berita {i + 1}"
+            )
+
+            st.write(
+                item["Judul Berita"]
+            )
+
+            st.caption(
+                f"Media: {item['Media']}"
+            )
+
+            st.code(
+                item["Link Berita"]
+            )
+
+            # --------------------------------------------
+            # AMBIL ISI
+            # --------------------------------------------
+
+            with st.spinner(
+                f"Mengambil isi berita {i + 1}..."
+            ):
+
+                content = (
+                    extract_article_content(
+                        item["Link Berita"]
+                    )
+                )
+
+            if content:
+
+                st.success(
+                    f"✅ Isi artikel berhasil "
+                    f"({len(content)} karakter)"
+                )
+
+                st.text_area(
+                    f"Isi artikel {i + 1}",
+                    content,
+                    height=250,
+                    key=f"article_{i}"
+                )
+
+            else:
+
+                st.warning(
+                    "⚠️ Isi artikel tidak berhasil "
+                    "diambil dari sumber ini."
+                )
 # ============================================================
 # 📌 LOAD DATA & SIDEBAR CONTROL (SG KOMPONEN)
 # ============================================================
