@@ -782,13 +782,249 @@ def clean_candidate_data(
         drop=True
     )
 # ============================================================
-# CARI DAN AMBIL ARTIKEL ASLI
+# DOMAIN MEDIA
 # ============================================================
 
-def get_article_content(title, media):
+MEDIA_DOMAIN_MAP = {
+
+    "unesa.ac.id":
+        "unesa.ac.id",
+
+    "KlikJatim":
+        "klikjatim.com",
+
+    "klikjatim":
+        "klikjatim.com",
+
+    "LintasJatimNews.com":
+        "lintasjatimnews.com",
+
+    "LintasJatimNews":
+        "lintasjatimnews.com",
+
+    "Radar Lamongan":
+        "radarlamongan.jawapos.com",
+
+    "Radar Lamongan (Jawa Pos)":
+        "radarlamongan.jawapos.com",
+
+    "ANTARAJATIM":
+        "jatim.antaranews.com",
+
+    "detikjatim":
+        "detik.com"
+}
+
+
+# ============================================================
+# NORMALISASI DOMAIN MEDIA
+# ============================================================
+
+def get_media_domain(media):
+
+    if not media:
+        return ""
+
+    media_clean = (
+        str(media)
+        .strip()
+        .lower()
+    )
+
+    # Cek mapping
+    for key, domain in MEDIA_DOMAIN_MAP.items():
+
+        if key.lower() in media_clean:
+
+            return domain
+
+    # Jika sudah berupa domain
+    media_clean = (
+        media_clean
+        .replace("https://", "")
+        .replace("http://", "")
+        .replace("www.", "")
+        .strip("/")
+    )
+
+    if "." in media_clean:
+
+        return media_clean
+
+    return ""
+
+
+# ============================================================
+# RESOLVE GOOGLE NEWS DENGAN PLAYWRIGHT
+# ============================================================
+
+def resolve_google_news_with_browser(
+    google_url,
+    media=""
+):
+
+    if not google_url:
+        return ""
+
+    if "news.google.com" not in google_url:
+
+        return google_url
+
+    try:
+
+        from playwright.sync_api import (
+            sync_playwright
+        )
+
+        domain = get_media_domain(
+            media
+        )
+
+        with sync_playwright() as p:
+
+            browser = p.chromium.launch(
+                headless=True
+            )
+
+            page = browser.new_page(
+                user_agent=(
+                    "Mozilla/5.0 "
+                    "(Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) "
+                    "Chrome/151.0 Safari/537.36"
+                )
+            )
+
+            # --------------------------------------------
+            # BUKA GOOGLE NEWS
+            # --------------------------------------------
+
+            page.goto(
+                google_url,
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+
+            page.wait_for_timeout(
+                5000
+            )
+
+            # --------------------------------------------
+            # CEK URL HASIL REDIRECT
+            # --------------------------------------------
+
+            current_url = page.url
+
+            print(
+                "Google News current URL:",
+                current_url
+            )
+
+            if (
+                current_url
+                and "news.google.com"
+                not in current_url
+            ):
+
+                browser.close()
+
+                return current_url
+
+            # --------------------------------------------
+            # CARI LINK EKSTERNAL
+            # --------------------------------------------
+
+            links = page.locator(
+                "a[href]"
+            )
+
+            count = links.count()
+
+            print(
+                "Jumlah link:",
+                count
+            )
+
+            for i in range(
+                min(count, 200)
+            ):
+
+                try:
+
+                    href = links.nth(
+                        i
+                    ).get_attribute(
+                        "href"
+                    )
+
+                    if not href:
+                        continue
+
+                    # Hanya URL http
+                    if not href.startswith(
+                        "http"
+                    ):
+                        continue
+
+                    # Jangan ambil Google
+                    if (
+                        "google.com"
+                        in href.lower()
+                    ):
+                        continue
+
+                    if (
+                        "news.google.com"
+                        in href.lower()
+                    ):
+                        continue
+
+                    # --------------------------------
+                    # Prioritaskan domain media
+                    # --------------------------------
+
+                    if domain:
+
+                        if domain.lower() in (
+                            href.lower()
+                        ):
+
+                            print(
+                                "URL media ditemukan:",
+                                href
+                            )
+
+                            browser.close()
+
+                            return href
+
+                except Exception:
+                    continue
+
+            browser.close()
+
+    except Exception as e:
+
+        print(
+            "Playwright resolver gagal:",
+            e
+        )
+
+    return ""
+
+
+# ============================================================
+# CARI URL ARTIKEL DARI DUCKDUCKGO
+# ============================================================
+
+def search_article_url(
+    title,
+    media=""
+):
 
     if not title:
-        return "", ""
+        return ""
 
     try:
 
@@ -796,41 +1032,34 @@ def get_article_content(title, media):
         from bs4 import BeautifulSoup
         from urllib.parse import quote_plus
 
-        # ====================================================
-        # BERSIHKAN JUDUL
-        # ====================================================
+        # --------------------------------------------
+        # Bersihkan judul
+        # --------------------------------------------
 
-        clean_title_value = clean_text(title)
+        clean_title_value = clean_text(
+            title
+        )
 
-        # Buang nama media di belakang judul
+        # Buang nama media setelah " - "
         if " - " in clean_title_value:
 
             clean_title_value = (
                 clean_title_value
-                .rsplit(" - ", 1)[0]
+                .rsplit("-", 1)[0]
                 .strip()
             )
 
-        # ====================================================
-        # BERSIHKAN DOMAIN MEDIA
-        # ====================================================
+        # --------------------------------------------
+        # Domain
+        # --------------------------------------------
 
-        domain = ""
+        domain = get_media_domain(
+            media
+        )
 
-        if media:
-
-            domain = (
-                media
-                .lower()
-                .replace("https://", "")
-                .replace("http://", "")
-                .replace("www.", "")
-                .strip("/")
-            )
-
-        # ====================================================
-        # BUAT QUERY
-        # ====================================================
+        # --------------------------------------------
+        # Query
+        # --------------------------------------------
 
         if domain:
 
@@ -846,12 +1075,192 @@ def get_article_content(title, media):
             )
 
         search_url = (
-            "https://www.google.com/search?q="
+            "https://html.duckduckgo.com/html/?q="
             + quote_plus(query)
         )
 
+        headers = {
+
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/151.0 Safari/537.36"
+            )
+        }
+
+        response = requests.get(
+            search_url,
+            headers=headers,
+            timeout=20
+        )
+
+        print(
+            "DuckDuckGo HTTP:",
+            response.status_code
+        )
+
+        if response.status_code != 200:
+
+            return ""
+
+        soup = BeautifulSoup(
+            response.text,
+            "html.parser"
+        )
+
+        # --------------------------------------------
+        # Ambil hasil pencarian
+        # --------------------------------------------
+
+        for result in soup.select(
+            ".result"
+        ):
+
+            link = result.select_one(
+                "a.result__a"
+            )
+
+            if not link:
+                continue
+
+            href = link.get(
+                "href",
+                ""
+            )
+
+            if not href:
+                continue
+
+            # ----------------------------------------
+            # Prioritaskan domain media
+            # ----------------------------------------
+
+            if domain:
+
+                if domain.lower() in (
+                    href.lower()
+                ):
+
+                    print(
+                        "URL ditemukan melalui search:",
+                        href
+                    )
+
+                    return href
+
+            else:
+
+                return href
+
+    except Exception as e:
+
+        print(
+            "Search URL gagal:",
+            e
+        )
+
+    return ""
+
+
+# ============================================================
+# AMBIL ISI ARTIKEL
+# ============================================================
+
+def get_article_content(
+    title,
+    media,
+    google_url=""
+):
+
+    if not title:
+        return "", ""
+
+    try:
+
+        import requests
+        from bs4 import BeautifulSoup
+
         # ====================================================
-        # REQUEST GOOGLE SEARCH
+        # 1. COBA RESOLVE GOOGLE NEWS
+        # ====================================================
+
+        real_url = ""
+
+        if google_url:
+
+            if "news.google.com" not in (
+                google_url.lower()
+            ):
+
+                real_url = google_url
+
+            else:
+
+                print(
+                    "Mencoba resolve Google News..."
+                )
+
+                real_url = (
+                    resolve_google_news_with_browser(
+                        google_url,
+                        media
+                    )
+                )
+
+        # ====================================================
+        # 2. JIKA GAGAL → CARI BERDASARKAN JUDUL
+        # ====================================================
+
+        if not real_url:
+
+            print(
+                "Browser resolver gagal."
+            )
+
+            print(
+                "Mencari artikel berdasarkan judul..."
+            )
+
+            real_url = search_article_url(
+                title,
+                media
+            )
+
+        # ====================================================
+        # 3. URL TIDAK DITEMUKAN
+        # ====================================================
+
+        if not real_url:
+
+            print(
+                "❌ URL asli tidak ditemukan."
+            )
+
+            return "", ""
+
+        # ====================================================
+        # 4. VALIDASI
+        # ====================================================
+
+        if "news.google.com" in (
+            real_url.lower()
+        ):
+
+            print(
+                "❌ URL masih Google News."
+            )
+
+            return "", ""
+
+        print(
+            "✅ URL ARTIKEL ASLI:",
+            real_url
+        )
+
+        # ====================================================
+        # 5. REQUEST ARTIKEL
         # ====================================================
 
         headers = {
@@ -865,26 +1274,38 @@ def get_article_content(title, media):
             ),
 
             "Accept-Language":
-                "id-ID,id;q=0.9,en;q=0.8"
+                "id-ID,id;q=0.9,en;q=0.8",
+
+            "Accept":
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,*/*;q=0.8"
         }
 
         response = requests.get(
-            search_url,
+            real_url,
             headers=headers,
-            timeout=20
+            timeout=30,
+            allow_redirects=True
         )
+
+        print(
+            "Artikel HTTP:",
+            response.status_code
+        )
+
+        # ====================================================
+        # 6. CEK HTTP
+        # ====================================================
 
         if response.status_code != 200:
 
-            print(
-                "Google Search HTTP:",
-                response.status_code
+            return (
+                real_url,
+                ""
             )
 
-            return "", ""
-
         # ====================================================
-        # PARSE HASIL GOOGLE
+        # 7. PARSE HTML
         # ====================================================
 
         soup = BeautifulSoup(
@@ -892,88 +1313,11 @@ def get_article_content(title, media):
             "html.parser"
         )
 
-        real_url = ""
-
-        for link in soup.select("a"):
-
-            href = link.get(
-                "href",
-                ""
-            )
-
-            if not href.startswith(
-                "http"
-            ):
-                continue
-
-            # Jangan ambil Google
-            if (
-                "google.com" in href
-                or "googleusercontent.com" in href
-            ):
-                continue
-
-            # Prioritaskan domain media
-            if domain:
-
-                if domain in href.lower():
-
-                    real_url = href
-
-                    break
-
-            elif not real_url:
-
-                real_url = href
-
         # ====================================================
-        # URL TIDAK DITEMUKAN
+        # 8. HAPUS ELEMENT
         # ====================================================
 
-        if not real_url:
-
-            print(
-                "❌ URL artikel asli tidak ditemukan"
-            )
-
-            return "", ""
-
-        print(
-            "✅ URL asli:",
-            real_url
-        )
-
-        # ====================================================
-        # REQUEST ARTIKEL ASLI
-        # ====================================================
-
-        article_response = requests.get(
-            real_url,
-            headers=headers,
-            timeout=20,
-            allow_redirects=True
-        )
-
-        if article_response.status_code != 200:
-
-            print(
-                "Artikel HTTP:",
-                article_response.status_code
-            )
-
-            return real_url, ""
-
-        # ====================================================
-        # PARSE ARTIKEL
-        # ====================================================
-
-        article_soup = BeautifulSoup(
-            article_response.text,
-            "html.parser"
-        )
-
-        # Hapus elemen yang tidak diperlukan
-        for tag in article_soup.find_all([
+        for tag in soup.find_all([
             "script",
             "style",
             "nav",
@@ -981,16 +1325,17 @@ def get_article_content(title, media):
             "header",
             "aside",
             "form",
-            "noscript"
+            "noscript",
+            "iframe"
         ]):
 
             tag.decompose()
 
         # ====================================================
-        # AMBIL ARTICLE
+        # 9. PRIORITAS ARTICLE
         # ====================================================
 
-        article = article_soup.find(
+        article = soup.find(
             "article"
         )
 
@@ -1003,8 +1348,8 @@ def get_article_content(title, media):
 
         else:
 
-            paragraphs = (
-                article_soup.find_all("p")
+            paragraphs = soup.find_all(
+                "p"
             )
 
             text = " ".join(
@@ -1016,7 +1361,7 @@ def get_article_content(title, media):
             )
 
         # ====================================================
-        # CLEAN
+        # 10. CLEAN
         # ====================================================
 
         text = clean_text(
@@ -1024,20 +1369,23 @@ def get_article_content(title, media):
         )
 
         # ====================================================
-        # VALIDASI
+        # 11. VALIDASI
         # ====================================================
 
         if len(text) < 100:
 
             print(
-                "❌ Isi artikel terlalu pendek:",
+                "⚠️ Isi artikel terlalu pendek:",
                 len(text)
             )
 
-            return real_url, ""
+            return (
+                real_url,
+                ""
+            )
 
         print(
-            "✅ Isi artikel:",
+            "✅ Isi artikel berhasil:",
             len(text),
             "karakter"
         )
@@ -1051,7 +1399,7 @@ def get_article_content(title, media):
 
         print(
             "❌ ERROR get_article_content:",
-            e
+            repr(e)
         )
 
         return "", ""
@@ -1167,329 +1515,7 @@ def search_news_rss(topic, max_results=8):
         )
 
     return articles
-# ============================================================
-# RESOLVE GOOGLE NEWS URL
-# ============================================================
 
-def resolve_google_news_url(url):
-
-    if not url:
-        return ""
-
-    # Jika sudah URL artikel asli
-    if "news.google.com" not in url:
-        return url
-
-    try:
-        # -----------------------------------------------
-        # Ambil ID artikel dari URL Google News
-        # -----------------------------------------------
-
-        parsed = urlparse(url)
-
-        parts = parsed.path.strip("/").split("/")
-
-        article_id = parts[-1]
-
-        if not article_id:
-            return ""
-
-        # -----------------------------------------------
-        # Coba decoder GNews
-        # -----------------------------------------------
-
-        try:
-
-            from gnews.utils.utils import resolve_url
-
-            real_url = resolve_url(url)
-
-            if (
-                real_url
-                and "news.google.com" not in real_url
-            ):
-                return real_url
-
-        except Exception as e:
-
-            print(
-                f"GNews resolver gagal: {e}"
-            )
-
-        # -----------------------------------------------
-        # Jika resolver gagal, kembalikan URL kosong
-        # agar fallback pencarian judul dijalankan
-        # -----------------------------------------------
-
-        return ""
-
-    except Exception as e:
-
-        print(
-            f"Resolve Google News gagal: {e}"
-        )
-
-        return ""
-# ============================================================
-# FIND ARTICLE URL BY TITLE
-# ============================================================
-
-def find_article_url_by_title(title, media=""):
-
-    if not title:
-        return ""
-
-    try:
-
-        from googlesearch import search
-
-        # Bersihkan nama website dari judul
-        clean_title = title
-
-        if media:
-
-            suffix = f" - {media}"
-
-            if clean_title.endswith(suffix):
-
-                clean_title = clean_title[
-                    :-len(suffix)
-                ]
-
-        # Buat query
-        query = f'"{clean_title}"'
-
-        if media:
-
-            query += f" site:{media}"
-
-        results = search(
-            query,
-            num_results=5
-        )
-
-        for result_url in results:
-
-            if not result_url:
-                continue
-
-            if "news.google.com" in result_url:
-                continue
-
-            return result_url
-
-    except Exception as e:
-
-        print(
-            f"Fallback pencarian judul gagal: {e}"
-        )
-
-    return ""
-# ============================================================
-# CARI URL ASLI BERDASARKAN JUDUL
-# ============================================================
-
-def find_real_article_url(title, media=""):
-
-    if not title:
-        return ""
-
-    try:
-
-        from googlesearch import search
-
-        query = f'"{title}" {media}'
-
-        results = search(
-            query,
-            num_results=5,
-            lang="id"
-        )
-
-        for url in results:
-
-            if not url:
-                continue
-
-            # Jangan ambil Google News
-            if "news.google.com" in url:
-                continue
-
-            # Prioritaskan website media
-            if media:
-
-                media_domain = (
-                    media.lower()
-                    .replace("www.", "")
-                    .strip()
-                )
-
-                if media_domain in url.lower():
-
-                    return url
-
-            # Kalau tidak menemukan domain media,
-            # gunakan URL pertama yang bukan Google News
-            return url
-
-    except Exception as e:
-
-        print(
-            f"Gagal mencari URL asli: {e}"
-        )
-
-    return ""
-# ============================================================
-# FIND REAL ARTICLE URL
-# ============================================================
-
-def find_real_article_url(
-    title,
-    media=""
-):
-
-    if not title:
-        return ""
-
-    try:
-
-        import requests
-        from bs4 import BeautifulSoup
-
-        # --------------------------------------------
-        # Bersihkan judul
-        # --------------------------------------------
-
-        clean_title_value = clean_text(
-            title
-        )
-
-        # Buang nama media di belakang judul
-        if " - " in clean_title_value:
-
-            parts = clean_title_value.rsplit(
-                " - ",
-                1
-            )
-
-            if len(parts) == 2:
-
-                clean_title_value = parts[0]
-
-        # --------------------------------------------
-        # Buat query Google
-        # --------------------------------------------
-
-        query = clean_title_value
-
-        if media:
-
-            domain = (
-                media
-                .replace("https://", "")
-                .replace("http://", "")
-                .replace("www.", "")
-                .strip("/")
-            )
-
-            query = (
-                f'"{clean_title_value}" '
-                f'site:{domain}'
-            )
-
-        google_url = (
-            "https://www.google.com/search?"
-            + requests.compat.urlencode({
-                "q": query,
-                "hl": "id"
-            })
-        )
-
-        # --------------------------------------------
-        # Request Google Search
-        # --------------------------------------------
-
-        headers = {
-
-            "User-Agent": (
-                "Mozilla/5.0 "
-                "(Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/151.0 Safari/537.36"
-            )
-        }
-
-        response = requests.get(
-            google_url,
-            headers=headers,
-            timeout=15
-        )
-
-        if response.status_code != 200:
-
-            print(
-                "Google Search gagal:",
-                response.status_code
-            )
-
-            return ""
-
-        # --------------------------------------------
-        # Parse hasil Google
-        # --------------------------------------------
-
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser"
-        )
-
-        for a in soup.find_all(
-            "a",
-            href=True
-        ):
-
-            href = a["href"]
-
-            if not href.startswith(
-                "http"
-            ):
-
-                continue
-
-            if (
-                "google.com" in href
-                or "googleusercontent.com" in href
-            ):
-
-                continue
-
-            # ----------------------------------------
-            # Prioritaskan domain media
-            # ----------------------------------------
-
-            if media:
-
-                if domain.lower() in href.lower():
-
-                    print(
-                        "URL artikel ditemukan:",
-                        href
-                    )
-
-                    return href
-
-            else:
-
-                return href
-
-    except Exception as e:
-
-        print(
-            f"Gagal mencari URL asli: {e}"
-        )
-
-    return ""
 
 # ============================================================
 # TEST NEWS PIPELINE
@@ -1562,17 +1588,18 @@ if st.button(
             )
 
             # =================================================
-            # CARI URL ASLI + ISI ARTIKEL
+            # AMBIL ARTIKEL
             # =================================================
 
             with st.spinner(
-                "🔎 Mencari artikel asli..."
+                "🔎 Mencari URL artikel asli..."
             ):
 
                 real_url, content = (
                     get_article_content(
-                        title,
-                        media
+                        title=title,
+                        media=media,
+                        google_url=google_url
                     )
                 )
 
@@ -1583,7 +1610,7 @@ if st.button(
             if real_url:
 
                 st.success(
-                    "✅ URL artikel asli ditemukan"
+                    "✅ URL artikel asli ditemukan!"
                 )
 
                 st.write(
@@ -1622,7 +1649,7 @@ if st.button(
             else:
 
                 st.warning(
-                    "⚠️ URL mungkin ditemukan, "
+                    "⚠️ URL ditemukan atau dicari, "
                     "tetapi isi artikel gagal diambil."
                 )
 
