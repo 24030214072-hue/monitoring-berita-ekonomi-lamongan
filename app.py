@@ -1644,7 +1644,7 @@ if st.button(
                     media=media,
                     google_url=google_url
                 )
-            )
+        
 
             # =================================================
             # URL ASLI
