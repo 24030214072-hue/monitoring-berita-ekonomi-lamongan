@@ -144,9 +144,59 @@ def create_database():
 
 create_database()
 
+# ============================================================
+# SUMBER BERITA
+# ============================================================
+
+NEWS_SOURCES = [
+    {
+        "nama": "KlikJatim",
+        "domain": "klikjatim.com"
+    },
+    {
+        "nama": "Kompas",
+        "domain": "kompas.com"
+    },
+    {
+        "nama": "Radar Lamongan",
+        "domain": "radarlamongan.jawapos.com"
+    },
+    {
+        "nama": "ANTARA Jatim",
+        "domain": "jatim.antaranews.com"
+    },
+    {
+        "nama": "Detik Jatim",
+        "domain": "detik.com"
+    }
+]
 
 # ============================================================
-# MASTER SEKTOR BPS
+# TOPIK PENCARIAN BERITA
+# ============================================================
+
+SEARCH_TOPICS = [
+    "Lamongan ekonomi",
+    "Kabupaten Lamongan ekonomi",
+    "Pemkab Lamongan ekonomi",
+    "Lamongan pertanian",
+    "Lamongan perikanan",
+    "Lamongan peternakan",
+    "Lamongan industri",
+    "Lamongan perdagangan",
+    "Lamongan UMKM",
+    "Lamongan investasi",
+    "Lamongan pariwisata",
+    "Lamongan konstruksi",
+    "Lamongan transportasi",
+    "Lamongan energi",
+    "Lamongan koperasi",
+    "Lamongan tenaga kerja",
+    "Lamongan pembangunan"
+]
+
+# ============================================================
+# 17 SEKTOR LAPANGAN USAHA
 # ============================================================
 
 SEKTOR_BPS = [
@@ -169,6 +219,396 @@ SEKTOR_BPS = [
     "R,S,T,U - Jasa Lainnya"
 ]
 
+# ============================================================
+# STRUKTUR DATA BERITA
+# ============================================================
+
+NEWS_COLUMNS = [
+    "Tanggal Berita",
+    "Media",
+    "Judul Berita",
+    "Isu Ekonomi",
+    "Sektor",
+    "Ringkasan Berita",
+    "Link Berita"
+]
+# ============================================================
+# DATA AWAL
+# ============================================================
+
+def create_empty_data():
+
+    return pd.DataFrame(
+        columns=NEWS_COLUMNS
+    )
+if DATA_FILE.exists():
+
+    try:
+        data = pd.read_csv(
+            DATA_FILE
+        )
+
+    except Exception:
+        data = create_empty_data()
+
+else:
+
+    data = create_empty_data()
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "data" not in st.session_state:
+
+    st.session_state.data = data
+# ============================================================
+# STRUKTUR DATA KANDIDAT BERITA
+# ============================================================
+
+CANDIDATE_COLUMNS = [
+    "Tanggal Berita",
+    "Media",
+    "Judul Berita",
+    "Link Berita",
+    "Isi Artikel"
+]
+# ============================================================
+# KONFIGURASI SCRAPING
+# ============================================================
+
+MAX_RESULTS_PER_TOPIC = 8
+
+MAX_TOTAL_CANDIDATES = 60
+
+ARTICLE_TIMEOUT = 15
+
+MAX_CONTENT_LENGTH = 12000
+# ============================================================
+# CLEAN TEXT
+# ============================================================
+
+def clean_text(text):
+
+    if text is None:
+        return ""
+
+    text = str(text)
+
+    # Hapus HTML
+    text = BeautifulSoup(
+        text,
+        "html.parser"
+    ).get_text(" ")
+
+    # Hilangkan spasi berlebihan
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
+# ============================================================
+# NORMALIZE TEXT
+# ============================================================
+
+def normalize_text(text):
+
+    text = clean_text(text)
+
+    text = text.lower()
+
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    return text.strip()
+# ============================================================
+# SIMILARITY
+# ============================================================
+
+def calculate_similarity(text1, text2):
+
+    words1 = set(
+        normalize_text(text1).split()
+    )
+
+    words2 = set(
+        normalize_text(text2).split()
+    )
+
+    if not words1 or not words2:
+        return 0.0
+
+    intersection = words1.intersection(
+        words2
+    )
+
+    union = words1.union(
+        words2
+    )
+
+    return len(intersection) / len(union)
+# ============================================================
+# PILIH ARTIKEL TERLENGKAP
+# ============================================================
+
+def choose_more_complete_article(
+    article1,
+    article2
+):
+
+    content1 = str(
+        article1.get(
+            "Isi Artikel",
+            ""
+        )
+    )
+
+    content2 = str(
+        article2.get(
+            "Isi Artikel",
+            ""
+        )
+    )
+
+    if len(content2) > len(content1):
+        return article2
+
+    return article1
+# ============================================================
+# REMOVE DUPLICATE NEWS
+# ============================================================
+
+def remove_duplicate_news(
+    df,
+    similarity_threshold=0.75
+):
+
+    if df.empty:
+        return df
+
+    df = df.copy()
+
+    # -----------------------------------------
+    # NORMALISASI JUDUL
+    # -----------------------------------------
+
+    df["_judul_normalized"] = (
+        df["Judul Berita"]
+        .apply(normalize_text)
+    )
+
+    # -----------------------------------------
+    # PRIORITASKAN ARTIKEL TERLENGKAP
+    # -----------------------------------------
+
+    df["_content_length"] = (
+        df["Isi Artikel"]
+        .fillna("")
+        .astype(str)
+        .str.len()
+    )
+
+    df = df.sort_values(
+        "_content_length",
+        ascending=False
+    )
+
+    # -----------------------------------------
+    # DUPLIKAT JUDUL
+    # -----------------------------------------
+
+    df = df.drop_duplicates(
+        subset="_judul_normalized",
+        keep="first"
+    )
+
+    # -----------------------------------------
+    # DUPLIKAT ISI / BERITA MIRIP
+    # -----------------------------------------
+
+    keep_indices = []
+
+    selected_texts = []
+
+    for idx, row in df.iterrows():
+
+        current_text = row[
+            "Isi Artikel"
+        ]
+
+        is_duplicate = False
+
+        for previous_text in selected_texts:
+
+            similarity = calculate_similarity(
+                current_text,
+                previous_text
+            )
+
+            if similarity >= similarity_threshold:
+
+                is_duplicate = True
+
+                break
+
+        if not is_duplicate:
+
+            keep_indices.append(idx)
+
+            selected_texts.append(
+                current_text
+            )
+
+    df = df.loc[
+        keep_indices
+    ].copy()
+
+    # -----------------------------------------
+    # HAPUS KOLOM BANTU
+    # -----------------------------------------
+
+    df.drop(
+        columns=[
+            "_judul_normalized",
+            "_content_length"
+        ],
+        errors="ignore",
+        inplace=True
+    )
+
+    return df.reset_index(
+        drop=True
+    )
+# ============================================================
+# STRUKTUR DATA HASIL AKHIR
+# ============================================================
+
+NEWS_COLUMNS = [
+    "Tanggal Berita",
+    "Media",
+    "Judul Berita",
+    "Isu Ekonomi",
+    "Sektor",
+    "Ringkasan Berita",
+    "Link Berita"
+]
+# ============================================================
+# DATA STORAGE
+# ============================================================
+
+DATA_DIR = Path("data")
+
+DATA_DIR.mkdir(
+    exist_ok=True
+)
+
+DATA_FILE = (
+    DATA_DIR /
+    "berita_lamongan.csv"
+)
+# ============================================================
+# SAVE DATA
+# ============================================================
+
+def save_news_data(df):
+
+    if df is None or df.empty:
+        return False
+
+    try:
+
+        df.to_csv(
+            DATA_FILE,
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+        return True
+
+    except Exception as e:
+
+        print(
+            f"Gagal menyimpan data: {e}"
+        )
+
+        return False
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+def load_news_data():
+
+    if not DATA_FILE.exists():
+
+        return pd.DataFrame(
+            columns=NEWS_COLUMNS
+        )
+
+    try:
+
+        df = pd.read_csv(
+            DATA_FILE
+        )
+
+        for col in NEWS_COLUMNS:
+
+            if col not in df.columns:
+                df[col] = ""
+
+        return df[
+            NEWS_COLUMNS
+        ]
+
+    except Exception as e:
+
+        print(
+            f"Gagal membaca data: {e}"
+        )
+
+        return pd.DataFrame(
+            columns=NEWS_COLUMNS
+        )
+# ============================================================
+# TEST TAHAP 2
+# ============================================================
+
+st.divider()
+
+st.subheader(
+    "🧪 Pengujian Struktur Data"
+)
+
+test_data = pd.DataFrame([
+    {
+        "Tanggal Berita": "2026-08-22",
+        "Media": "Radar Lamongan",
+        "Judul Berita":
+            "Petani Lamongan Mendapat Bantuan Pupuk",
+        "Isi Artikel":
+            "Pemerintah memberikan bantuan pupuk "
+            "kepada petani di Kabupaten Lamongan "
+            "untuk mendukung produktivitas pertanian."
+        ,
+        "Link Berita":
+            "https://contoh.com/berita"
+    }
+])
+
+st.dataframe(
+    test_data,
+    use_container_width=True,
+    hide_index=True
+)
 
 # ============================================================
 # KONFIGURASI GEMINI AI
