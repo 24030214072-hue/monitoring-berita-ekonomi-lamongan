@@ -3,5 +3,6 @@ pandas
 requests
 feedparser
 beautifulsoup4
-gnews[playwright]
 google-genai
+plotly
+openpyxl
