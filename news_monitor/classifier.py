@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Protocol, cast
 
 from google import genai
 
@@ -11,6 +11,11 @@ from .models import AnalysisResult
 from .text import clean_text, extractive_summary, normalize_text, truncate_words
 
 logger = logging.getLogger(__name__)
+
+
+class _InteractionResponse(Protocol):
+    output_text: str | None
+
 
 SECTOR_RULES = {
     SEKTOR_BPS[0]: ("pertanian", "petani", "padi", "jagung", "panen", "pupuk", "perikanan", "nelayan", "ikan", "tambak", "peternakan", "ternak", "sapi"),
@@ -65,6 +70,9 @@ class NewsClassifier:
     def ai_available(self) -> bool:
         return self.configured and not self._ai_disabled
 
+    def classify_rules(self, title: str, content: str) -> AnalysisResult:
+        return self._rules_classify(title, content)
+
     def classify(self, title: str, content: str) -> AnalysisResult:
         fallback = self._rules_classify(title, content)
         if not fallback.is_economic or not self.ai_available:
@@ -107,7 +115,8 @@ class NewsClassifier:
             except Exception as exc:
                 self.last_error = str(exc)
                 logger.warning("Gemini batch failed; using extractive summaries: %s", exc)
-                if "401" in str(exc) or "403" in str(exc):
+                normalized_error = str(exc).casefold()
+                if any(marker in normalized_error for marker in ("401", "403", "429", "quota", "rate limit")):
                     self._ai_disabled = True
                     break
         return results
@@ -208,14 +217,15 @@ Artikel:
                 "schema": {"type": "array", "items": item_schema},
             },
         )
-        payload = json.loads(response.output_text or "[]")
+        payload = json.loads(cast(_InteractionResponse, response).output_text or "[]")
         by_id = {
             int(item.get("id", -1)): item
             for item in payload
             if isinstance(item, dict)
         }
         return [
-            self._analysis_from_data(by_id.get(index, {}), fallback)
+            self._analysis_from_data(by_id[index], fallback)
+            if index in by_id else fallback
             for index, fallback in enumerate(fallbacks)
         ]
 
@@ -279,7 +289,9 @@ Isi: {clean_text(content)[:7000]}
                 "schema": schema,
             },
         )
-        data: dict[str, Any] = json.loads(response.output_text or "{}")
+        data: dict[str, Any] = json.loads(
+            cast(_InteractionResponse, response).output_text or "{}"
+        )
         return self._analysis_from_data(data, fallback)
 
     def test(self, title: str, content: str) -> dict[str, object]:

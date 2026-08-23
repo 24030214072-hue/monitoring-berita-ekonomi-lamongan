@@ -3,8 +3,9 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from news_monitor.models import NewsArticle
+from news_monitor.models import NewsArticle, NewsCandidate
 from news_monitor.repository import NewsRepository
+from news_monitor.text import title_fingerprint
 
 
 class NewsRepositoryTests(unittest.TestCase):
@@ -60,6 +61,39 @@ class NewsRepositoryTests(unittest.TestCase):
             frame = repository.load_dataframe()
             self.assertEqual(len(frame), 1)
             self.assertEqual(frame.iloc[0]["Isu Ekonomi"], "Isu diperbarui")
+
+    def test_candidate_queue_persists_status_and_backfill_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = NewsRepository(Path(directory) / "news.db", legacy_csv_path=None)
+            candidate = NewsCandidate(
+                datetime(2026, 1, 10),
+                "Media",
+                "Harga beras Lamongan meningkat",
+                "https://example.com/beras",
+                "Ringkasan RSS",
+            )
+            february_candidate = NewsCandidate(
+                datetime(2026, 2, 10),
+                "Media",
+                "Harga jagung Lamongan meningkat",
+                "https://example.com/jagung",
+                "Ringkasan RSS",
+            )
+            repository.upsert_candidates([candidate, february_candidate])
+            january_pending = repository.pending_candidates(10, month=1)
+            self.assertEqual(len(january_pending), 1)
+            self.assertEqual(january_pending[0].title, candidate.title)
+            self.assertEqual(repository.pending_count(month=2), 1)
+
+            repository.mark_candidates({
+                title_fingerprint(candidate.title): ("rejected", "Tidak relevan")
+            })
+            self.assertEqual(repository.pending_count(month=1), 0)
+            self.assertEqual(repository.pending_count(month=2), 1)
+
+            self.assertEqual(repository.discovery_month(8), 1)
+            repository.advance_discovery_month(1, 8)
+            self.assertEqual(repository.discovery_month(8), 2)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,23 @@ import plotly.express as px
 import streamlit as st
 
 from news_monitor import NewsClassifier, NewsPipeline, NewsRepository
-from news_monitor.config import LOG_PATH, LOGO_PATH, TARGET_YEAR, UI_COLUMNS
+from news_monitor.config import LOG_PATH, LOGO_PATH, START_YEAR, UI_COLUMNS
+
+MONTH_NAMES_ID = (
+    "",
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
+    "Mei",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
+)
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -89,8 +105,8 @@ def create_empty_data() -> pd.DataFrame:
     return pd.DataFrame(columns=UI_COLUMNS)
 
 
-def load_data() -> pd.DataFrame:
-    frame = get_repository().load_dataframe()
+def load_data(year: int) -> pd.DataFrame:
+    frame = get_repository().load_dataframe(year)
     for column in UI_COLUMNS:
         if column not in frame.columns:
             frame[column] = ""
@@ -130,37 +146,15 @@ def show_quota_warning(error: str) -> None:
     )
 
 
-if "data" not in st.session_state:
-    st.session_state.data = load_data()
+current_year = max(START_YEAR, datetime.now().year)
+active_year = int(st.session_state.get("monitor_year", current_year))
+active_year = min(max(active_year, START_YEAR), current_year)
+st.session_state.monitor_year = active_year
+if "data" not in st.session_state or st.session_state.get("data_year") != active_year:
+    st.session_state.data = load_data(active_year)
+    st.session_state.data_year = active_year
 if "gemini_error" not in st.session_state:
     st.session_state.gemini_error = ""
-
-# ============================================================
-# TEST GEMINI AI
-# ============================================================
-st.divider()
-st.subheader("🧪 Test Gemini AI")
-test_title = st.text_input("Judul Berita", value="Harga cabai di Lamongan mengalami kenaikan")
-test_content = st.text_area(
-    "Isi Berita",
-    value="""
-    Harga cabai rawit di sejumlah pasar Kabupaten Lamongan
-    mengalami kenaikan akibat berkurangnya pasokan dari petani.
-    Kenaikan harga tersebut berdampak terhadap pedagang dan
-    konsumen di wilayah Lamongan.
-    """,
-    height=200,
-)
-if st.button("🤖 Test Analisis Gemini", width="stretch"):
-    if not test_content.strip():
-        st.warning("Isi berita harus diisi.")
-    else:
-        classifier = build_classifier()
-        with st.spinner("Gemini sedang menganalisis..."):
-            result = classifier.test(test_title, test_content)
-        st.session_state.gemini_error = classifier.last_error
-        st.write("### Hasil Analisis")
-        st.json(result)
 
 # ============================================================
 # STATUS DAN PENGAMBILAN BERITA
@@ -178,9 +172,69 @@ else:
         detail = "API gagal; klasifikasi aturan tetap aktif"
     st.error(f"🔴 Gemini AI: Offline - {detail}")
 
-st.divider()
+repository = get_repository()
+today = datetime.now()
 
-if st.button("🔄 Ambil Berita Terbaru", width="stretch"):
+st.markdown('<div class="section-header">Status Pemindaian Berita</div>', unsafe_allow_html=True)
+selected_year = st.selectbox(
+    "Tahun yang ingin dipantau",
+    options=list(range(START_YEAR, current_year + 1)),
+    key="monitor_year",
+    help=f"Data tersedia mulai {START_YEAR}. Tahun baru otomatis muncul saat kalender berganti.",
+)
+maximum_month = today.month if selected_year == today.year else 12
+selected_month = st.selectbox(
+    "Bulan yang ingin dicari",
+    options=list(range(1, maximum_month + 1)),
+    format_func=lambda month: f"{MONTH_NAMES_ID[month]} {selected_year}",
+    help="Pilih satu bulan. Pencarian dan antrean diproses khusus untuk tahun dan bulan tersebut.",
+)
+candidate_counts = repository.candidate_status_counts(
+    year=selected_year,
+    month=selected_month,
+)
+pending_candidates = candidate_counts.get("pending", 0)
+rejected_candidates = candidate_counts.get("rejected", 0) + candidate_counts.get("duplicate", 0)
+failed_candidates = candidate_counts.get("failed", 0)
+
+news_column, queue_column, rejected_column, month_column = st.columns(4)
+news_metric = news_column.empty()
+queue_metric = queue_column.empty()
+rejected_metric = rejected_column.empty()
+month_metric = month_column.empty()
+news_metric.metric("Total Berita Lolos", len(st.session_state.data))
+queue_metric.metric("Antrean Bulan Dipilih", pending_candidates)
+rejected_metric.metric("Ditolak / Duplikat", rejected_candidates)
+month_metric.metric("Bulan Dipilih", MONTH_NAMES_ID[selected_month])
+
+if not candidate_counts:
+    st.info(
+        f"Bulan {MONTH_NAMES_ID[selected_month]} belum pernah dipindai. Menjalankan ulang "
+        f"Streamlit hanya memuat {len(st.session_state.data)} data tersimpan; klik tombol "
+        "di bawah untuk mulai mencari dan memproses kandidat bulan ini."
+    )
+elif pending_candidates:
+    st.info(
+        f"Masih ada {pending_candidates} kandidat dalam antrean. Klik tombol di bawah "
+        "untuk memproses batch berikutnya."
+    )
+elif failed_candidates:
+    st.warning(
+        f"{failed_candidates} kandidat gagal diambil setelah beberapa percobaan. "
+        "Backfill dapat tetap dilanjutkan ke bulan berikutnya."
+    )
+
+st.divider()
+st.caption(
+    "Pemindaian tidak berjalan otomatis saat halaman dimuat ulang. Setiap klik menyimpan "
+    "progres ke database dan memproses maksimal 80 kandidat agar tetap stabil."
+)
+
+if st.button(
+    f"🚀 Cari & Proses Berita {MONTH_NAMES_ID[selected_month]} {selected_year}",
+    width="stretch",
+    type="primary",
+):
     progress_bar = st.progress(0)
     status = st.empty()
 
@@ -190,34 +244,71 @@ if st.button("🔄 Ambil Berita Terbaru", width="stretch"):
 
     with st.spinner("🔎 Mengambil dan menganalisis berita..."):
         classifier = build_classifier()
-        pipeline = NewsPipeline(get_repository(), classifier)
-        report = pipeline.run(show_progress)
+        pipeline = NewsPipeline(repository, classifier)
+        report = pipeline.run(
+            show_progress,
+            search_year=selected_year,
+            search_month=selected_month,
+        )
     progress_bar.empty()
     status.empty()
     st.session_state.gemini_error = report.ai_error
-    st.session_state.data = load_data()
+    st.session_state.data = load_data(selected_year)
+    st.session_state.data_year = selected_year
+    updated_counts = repository.candidate_status_counts(
+        year=selected_year,
+        month=selected_month,
+    )
+    updated_rejected = updated_counts.get("rejected", 0) + updated_counts.get("duplicate", 0)
+    news_metric.metric("Total Berita Lolos", len(st.session_state.data))
+    queue_metric.metric("Antrean Bulan Dipilih", updated_counts.get("pending", 0))
+    rejected_metric.metric("Ditolak / Duplikat", updated_rejected)
+    month_metric.metric("Bulan Dipilih", MONTH_NAMES_ID[selected_month])
 
     if is_quota_error(report.ai_error):
         show_quota_warning(report.ai_error)
 
     if report.saved:
         st.success(
-            f"✅ Berhasil memperbarui {report.saved} berita ekonomi "
+            f"✅ Berhasil menyimpan {report.saved} berita ekonomi "
             f"({report.ai_classified} dianalisis Gemini, "
             f"{report.fallback_classified} menggunakan fallback)."
         )
-    elif report.discovered == 0:
-        st.warning(f"⚠️ Tidak ada berita tahun {TARGET_YEAR} yang ditemukan dari sumber RSS.")
+    elif report.processing == 0 and report.discovered == 0:
+        st.warning(f"⚠️ Tidak ada berita tahun {selected_year} yang ditemukan dari sumber RSS.")
+    elif report.processing == 0:
+        st.info(f"ℹ️ Seluruh kandidat {MONTH_NAMES_ID[selected_month]} yang ditemukan sudah diproses.")
     elif report.accepted == 0:
-        st.warning("⚠️ Kandidat ditemukan, tetapi tidak ada berita ekonomi Lamongan yang lolos klasifikasi.")
+        st.warning("⚠️ Kandidat diproses, tetapi tidak ada berita ekonomi Lamongan yang lolos aturan kualitas.")
     else:
         st.info("ℹ️ Berita yang ditemukan sudah tersimpan sebelumnya.")
 
-if st.button("🗑️ Reset & Bersihkan Data", width="stretch"):
-    get_repository().clear()
-    st.session_state.data = create_empty_data()
-    st.success("✅ Data berhasil direset.")
-    st.rerun()
+    st.caption(
+        f"Periode pencarian: {report.search_period or '-'} · "
+        f"ditemukan {report.discovered} · diproses {report.processing} · "
+        f"gagal ekstraksi {report.extraction_failed} · ditolak {report.rejected} · "
+        f"antrean tersisa {report.queued}."
+    )
+
+with st.expander("⚙️ Pemeliharaan Data"):
+    st.warning(
+        f"Reset hanya menghapus berita dan antrean tahun {selected_year}. "
+        "Data tahun lain tetap aman."
+    )
+    confirm_reset = st.checkbox(
+        f"Saya memahami bahwa data tahun {selected_year} akan dihapus permanen",
+        key=f"confirm_reset_{selected_year}",
+    )
+    if st.button(
+        f"🗑️ Reset Data Tahun {selected_year}",
+        width="stretch",
+        disabled=not confirm_reset,
+    ):
+        repository.clear(selected_year)
+        st.session_state.data = create_empty_data()
+        st.session_state.data_year = selected_year
+        st.success(f"✅ Data tahun {selected_year} berhasil direset.")
+        st.rerun()
 
 # ============================================================
 # FILTER
@@ -227,7 +318,7 @@ for column in UI_COLUMNS:
     if column not in df.columns:
         df[column] = ""
 df["Tanggal Berita"] = pd.to_datetime(df["Tanggal Berita"], errors="coerce")
-df = df[df["Tanggal Berita"].dt.year == TARGET_YEAR].copy()
+df = df[df["Tanggal Berita"].dt.year == selected_year].copy()
 
 with st.sidebar:
     valid_dates = df["Tanggal Berita"].dropna()
@@ -235,8 +326,8 @@ with st.sidebar:
         min_date = valid_dates.min().date()
         max_date = valid_dates.max().date()
     else:
-        min_date = datetime(TARGET_YEAR, 1, 1).date()
-        max_date = datetime(TARGET_YEAR, 12, 31).date()
+        min_date = datetime(selected_year, 1, 1).date()
+        max_date = datetime(selected_year, 12, 31).date()
 
     date_range = st.date_input("📅 Periode Berita", value=(min_date, max_date))
     selected_media = st.multiselect("🌐 Media", sorted(df["Media"].dropna().unique()))
@@ -374,6 +465,38 @@ if not filtered.empty:
         )
     except ImportError:
         st.info("💡 Pastikan 'openpyxl' sudah ada di requirements.txt")
+
+# ============================================================
+# TEST GEMINI AI (developer utility)
+# ============================================================
+with st.expander("🧪 Test Gemini AI"):
+    st.caption("Gunakan panel ini untuk memverifikasi koneksi dan respons model Gemini secara manual.")
+    test_title = st.text_input(
+        "Judul Berita",
+        value="Harga cabai di Lamongan mengalami kenaikan",
+        key="test_title",
+    )
+    test_content = st.text_area(
+        "Isi Berita",
+        value=(
+            "Harga cabai rawit di sejumlah pasar Kabupaten Lamongan "
+            "mengalami kenaikan akibat berkurangnya pasokan dari petani. "
+            "Kenaikan harga tersebut berdampak terhadap pedagang dan "
+            "konsumen di wilayah Lamongan."
+        ),
+        height=180,
+        key="test_content",
+    )
+    if st.button("🤖 Test Analisis Gemini", width="stretch", key="btn_test_gemini"):
+        if not test_content.strip():
+            st.warning("Isi berita harus diisi.")
+        else:
+            classifier = build_classifier()
+            with st.spinner("Gemini sedang menganalisis..."):
+                result = classifier.test(test_title, test_content)
+            st.session_state.gemini_error = classifier.last_error
+            st.write("### Hasil Analisis")
+            st.json(result)
 
 st.divider()
 st.caption("Dashboard Monitoring Berita Ekonomi Kabupaten Lamongan | BPS Kabupaten Lamongan")

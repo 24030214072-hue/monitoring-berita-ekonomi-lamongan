@@ -39,6 +39,10 @@ def title_fingerprint(title: str) -> str:
     return hashlib.sha256(normalize_text(title).encode("utf-8")).hexdigest()
 
 
+def news_fingerprint(title: str, published_at: datetime) -> str:
+    return f"{published_at.year}:{title_fingerprint(title)}"
+
+
 def canonicalize_url(url: str) -> str:
     if not url:
         return ""

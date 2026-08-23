@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 
 from .config import ARTICLE_MAX_CHARS, REQUEST_TIMEOUT
 from .http import build_session
-from .models import NewsCandidate
+from .models import ExtractionResult, NewsCandidate
 from .resolver import GoogleNewsResolver
 from .text import clean_text
 
@@ -29,22 +29,27 @@ class ArticleExtractor:
         self.session = build_session()
         self.resolver = GoogleNewsResolver()
 
-    def extract(self, candidate: NewsCandidate) -> tuple[str, str]:
+    def extract(self, candidate: NewsCandidate) -> ExtractionResult:
         resolved_url = self.resolver.resolve(candidate.url)
         if not resolved_url:
-            return candidate.url, candidate.summary
+            return ExtractionResult(candidate.url, error="Tautan penerbit tidak dapat diselesaikan.")
         try:
             response = self.session.get(resolved_url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
             if "html" not in content_type.casefold():
-                return resolved_url, candidate.summary
+                return ExtractionResult(resolved_url, error="Halaman penerbit bukan HTML.")
             text = self._extract_html(response.text)
-            content = text[:ARTICLE_MAX_CHARS] if len(text) >= 120 else candidate.summary
-            return resolved_url, content
+            if len(text) < 200:
+                return ExtractionResult(resolved_url, error="Isi artikel kurang dari 200 karakter.")
+            return ExtractionResult(
+                resolved_url=resolved_url,
+                content=text[:ARTICLE_MAX_CHARS],
+                success=True,
+            )
         except Exception as exc:
             logger.info("Article extraction failed for %s: %s", resolved_url, exc)
-            return resolved_url, candidate.summary
+            return ExtractionResult(resolved_url, error=str(exc))
 
     @staticmethod
     def _extract_html(document: str) -> str:

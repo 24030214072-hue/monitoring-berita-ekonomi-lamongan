@@ -5,6 +5,8 @@ Dashboard Streamlit untuk menemukan, membaca, mengklasifikasikan, dan merangkum 
 ## Fitur
 
 - Pencarian berita Lamongan melalui RSS Google News dan Bing News.
+- Pemilihan bulan Januari–bulan berjalan dengan query terarah untuk seluruh 17 sektor BPS.
+- Antrean kandidat persisten agar refresh berikutnya melanjutkan pekerjaan lama.
 - Filter ketat berdasarkan tahun publikasi 2026.
 - Resolusi tautan Google News ke halaman media asli.
 - Ekstraksi isi artikel dari halaman penerbit.
@@ -143,23 +145,25 @@ Gunakan bagian **Test Gemini AI** untuk memastikan autentikasi dan model bekerja
 
 Jika nilainya `rules`, aplikasi menggunakan fallback.
 
-### Ambil Berita Terbaru
+### Cari dan Proses Berita per Bulan
 
-Tombol **Ambil Berita Terbaru** menjalankan proses berikut:
+Memulai ulang Streamlit hanya memuat data yang sudah tersimpan dan tidak otomatis menjalankan scraper. Pilih bulan mulai Januari 2026 sampai bulan berjalan, lalu klik tombol **Cari & Proses Berita [Bulan] 2026**. Prosesnya:
 
-1. Mencari berita Lamongan tahun 2026.
-2. Menghapus kandidat duplikat.
-3. Mengubah tautan Google News menjadi tautan media asli.
-4. Mengambil isi artikel dari halaman penerbit.
-5. Menolak artikel yang tidak memiliki isi memadai.
-6. Memeriksa relevansi ekonomi Lamongan.
-7. Menganalisis artikel dengan Gemini dalam batch.
-8. Membuat isu, sektor BPS, dan ringkasan.
-9. Menggunakan fallback jika Gemini tidak tersedia.
-10. Menyimpan atau memperbarui hasil di SQLite.
-11. Memuat ulang data tabel, grafik, dan ekspor Excel.
+1. Mencari dan memproses berita hanya untuk bulan yang dipilih.
+2. Menjalankan query terarah yang mencakup seluruh 17 sektor BPS.
+3. Menghapus kandidat duplikat dan memasukkan kandidat baru ke antrean SQLite.
+4. Mengambil maksimal 80 kandidat yang belum pernah selesai diproses.
+5. Mengubah tautan Google News menjadi tautan media asli.
+6. Mengambil isi artikel dari halaman penerbit.
+7. Menolak artikel yang tidak memiliki isi asli minimal 200 karakter.
+8. Memeriksa relevansi ekonomi Lamongan dengan aturan ketat.
+9. Menganalisis artikel yang lolos dengan Gemini dalam batch.
+10. Membuat isu, sektor BPS, dan ringkasan.
+11. Menggunakan fallback jika Gemini tidak tersedia.
+12. Menyimpan hasil tanpa menghapus berita lama akibat kegagalan sementara.
+13. Memuat ulang data tabel, grafik, dan ekspor Excel.
 
-Setelah selesai, UI menampilkan jumlah berita yang dianalisis Gemini dan jumlah yang menggunakan fallback.
+Selama pencarian, setiap batch RSS langsung disimpan ke SQLite. Jika proses dihentikan, kandidat yang sudah ditemukan tidak hilang. Setelah selesai, UI menampilkan periode pencarian, kandidat ditemukan, jumlah yang diproses, kegagalan ekstraksi, penolakan kualitas, antrean bulan terpilih, serta penggunaan Gemini/fallback. Jika antrean bulan tersebut masih ada, klik tombol yang sama kembali. Setelah selesai, pilih bulan lain untuk melanjutkan pemantauan.
 
 ### Status Gemini
 
@@ -185,7 +189,7 @@ Data aplikasi disimpan di:
 berita_lamongan.db
 ```
 
-Database menggunakan SQLite dan dibuat otomatis ketika aplikasi pertama kali berjalan. Jangan membagikan database jika berisi data yang tidak boleh dipublikasikan.
+Database menggunakan SQLite dan dibuat otomatis ketika aplikasi pertama kali berjalan. Selain berita yang lolos, database menyimpan antrean kandidat dan posisi bulan backfill sehingga proses berikutnya tidak mengulang artikel yang sama. Jangan membagikan database jika berisi data yang tidak boleh dipublikasikan.
 
 ## Menjalankan Test
 
@@ -234,7 +238,7 @@ Aplikasi akan menunggu dan mencoba ulang. Jika tetap gagal, artikel diproses men
 
 ### Ringkasan terlihat seperti judul
 
-Restart aplikasi dan klik **Ambil Berita Terbaru**. Pipeline terbaru hanya menerima artikel dengan isi memadai dan menyimpan URL penerbit asli.
+Restart aplikasi, pilih bulan, lalu klik **Cari & Proses Berita [Bulan] 2026**. Pipeline terbaru hanya menerima artikel dengan isi memadai dan menyimpan URL penerbit asli.
 
 ### Port 8501 sudah digunakan
 

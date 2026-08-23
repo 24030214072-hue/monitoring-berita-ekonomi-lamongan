@@ -9,6 +9,15 @@ class NewsCandidate:
     title: str
     url: str
     summary: str = ""
+    attempts: int = 0
+
+
+@dataclass(slots=True)
+class ExtractionResult:
+    resolved_url: str
+    content: str = ""
+    success: bool = False
+    error: str = ""
 
 
 @dataclass(slots=True)
